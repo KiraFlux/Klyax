@@ -41,18 +41,17 @@ static Motor motors[4] = {
 };
 
 void setup() {
-    Serial.begin(115200);
-
     for (auto &m: motors) {
         m.init();
     }
 
     delay(1000);
-    Serial.println("Motor test started");
 
     for (auto &m: motors) {
-        m.write(1.0);
-        delay(1000);
+        for (float i = 0; i <= 1.0; i += 0.01) {
+            m.write(i);
+            delay(10);
+        }
         m.write(0);
         delay(500);
     }
