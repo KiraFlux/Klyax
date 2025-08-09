@@ -34,10 +34,10 @@ private:
 };
 
 static Motor motors[4] = {
-    Motor(12),
-    Motor(13),
-    Motor(14),
-    Motor(15),
+    Motor(12), // M0 - Back Left
+    Motor(13), // M1 - Back Right
+    Motor(14), // M2 - Front Left
+    Motor(15), // M3 - Front Right
 };
 
 void setup() {
