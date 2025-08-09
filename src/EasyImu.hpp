@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ela/vec3.hpp"
+#include <Arduino.h>
 #include <ICM_20948.h>
 
 
