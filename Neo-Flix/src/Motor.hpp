@@ -1,3 +1,5 @@
+#pragma once
+
 #include <Arduino.h>
 
 
@@ -32,30 +34,3 @@ private:
     }
 
 };
-
-static Motor motors[4] = {
-    Motor(12), // M0 - Back Left
-    Motor(13), // M1 - Back Right
-    Motor(14), // M2 - Front Left
-    Motor(15), // M3 - Front Right
-};
-
-void setup() {
-    for (auto &m: motors) {
-        m.init();
-    }
-
-    delay(1000);
-
-    for (auto &m: motors) {
-        for (float i = 0; i <= 1.0; i += 0.01) {
-            m.write(i);
-            delay(10);
-        }
-        m.write(0);
-        delay(500);
-    }
-
-}
-
-void loop() {}
