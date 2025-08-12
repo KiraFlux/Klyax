@@ -14,10 +14,10 @@ private:
 
 public:
 
-    constexpr explicit Motor(uint8_t pin) noexcept:
+    constexpr explicit Motor(uint8_t pin) :
         pin{pin} {}
 
-    void init() const noexcept {
+    void init() const {
         ledcSetup(pin, pwm_frequency, pwm_resolution);
         ledcAttachPin(pin, pin);
     }

@@ -2,108 +2,129 @@
 #include <WiFi.h>
 #include "espnow/Protocol.hpp"
 
-#include "Motor.hpp"
-#include "ela/vec3.hpp"
+
+#include "DroneFrameDriver.hpp"
+#include "PacketTimeoutManager.hpp"
 
 
-#define LOG(x) Serial.println(x)
+static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
 
 struct DroneControl {
-    /// left_x Поворот Z [-1.0 .. 1.0]
+    /// YAW
+    /// [-1.0 .. 1.0]
+    /// Поворот в плоскости XY
+    /// Канал пульта: left_x
     float yaw;
 
-    /// left_y Тяга [0.0 .. 1.0]
-    float throttle;
+    /// THRUST
+    /// [10.0 .. 1.0]
+    /// Смещение по оси Z
+    /// Канал пульта: left_y
+    float thrust;
 
-    /// right_x поворот бок влево-вправо [-1.0 .. 1.0]
+    /// ROLL
+    /// [-1.0 .. 1.0]
+    /// Смещение по оси Y
+    /// Канал пульта: right_x
     float roll;
 
-    /// right_y поворот вперед-назад [-1.0 .. 1.0]
+    /// PITCH
+    /// [-1.0 .. 1.0]
+    /// Смещение по оси X
+    /// Канал пульта: right_y
     float pitch;
-
-
-    bool f1, f2, f3, f4; // Дополнительные функции от пульта
 };
 
 DroneControl control;
 
-static constexpr espnow::Mac target = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
+PacketTimeoutManager timeout_manager{1000};
 
-constexpr auto shutdown_timeout_ms = 1000;
-
-uint32_t shutdown_time_ms = 0;
-
-// Конфигурация моторов (X-расположение)
-static Motor motors[4] = {
-    Motor(12), // M0 - Задний левый
-    Motor(13), // M1 - Задний правый
-    Motor(14), // M2 - Передний левый
-    Motor(15), // M3 - Передний правый
+DroneFrameDriver frame_driver{
+    .motors={
+        Motor(12),
+        Motor(13),
+        Motor(14),
+        Motor(15),
+    }
 };
 
 void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
-    if (size != sizeof(DroneControl)) {
-        LOG("Packet err");
+
+    struct DualJotControlPacket {
+        float left_x;
+        float left_y;
+        float right_x;
+        float right_y;
+
+        bool toggle_left;
+        bool toggle_right;
+        bool hold_left;
+        bool hold_right;
+    };
+
+    if (mac != control_mac) {
+        LOG("got message from unknown device");
         return;
     }
 
-    control = *reinterpret_cast<const DroneControl *>(data);
-    control.throttle = constrain(control.throttle, 0.0, 1.0);
-    shutdown_time_ms = millis() + shutdown_timeout_ms;
-}
-
-void setup() {
-    Serial.begin(115200);
-    LOG("Init...");
-
-    for (auto &m: motors) {
-        m.init();
-        m.write(0); // Инициализация с нулевой мощностью
+    if (size != sizeof(DualJotControlPacket)) {
+        LOG("invalid packet size");
+        return;
     }
 
-    LOG("Init Done");
+    timeout_manager.update();
 
-    WiFiClass::mode(WIFI_MODE_STA);
+    const auto &DJC = *reinterpret_cast<const DualJotControlPacket *>(data);
+
+    control.yaw = DJC.left_x;
+    control.thrust = DJC.left_y;
+    control.roll = -DJC.right_x;
+    control.pitch = -DJC.right_y;
+}
+
+bool initEspNow() {
+    LOG("ESPNOW Init");
+
+    const bool wifi_ok = WiFiClass::mode(WIFI_MODE_STA);
+    if (not wifi_ok) {
+        return false;
+    }
+
     const auto init_result = espnow::Protocol::init();
     if (init_result.fail()) {
         LOG(rs::toString(init_result.error));
+        return false;
     }
 
-    const auto peer_result = espnow::Peer::add(target);
+    const auto peer_result = espnow::Peer::add(control_mac);
     if (peer_result.fail()) {
         LOG(rs::toString(peer_result.error));
+        return false;
     }
 
     const auto handler_result = espnow::Protocol::instance().setReceiveHandler(onEspNowMessage);
     if (handler_result.fail()) {
         LOG(rs::toString(handler_result.error));
+        return false;
     }
 
-    // Инициализация времени безопасности
-    shutdown_time_ms = millis() + shutdown_timeout_ms;
+    LOG("ESPNOW Success");
+    return true;
+}
+
+void setup() {
+    Serial.begin(115200);
+
+    frame_driver.init();
+    initEspNow();
+
     LOG("Start!");
 }
 
-void sendMotors() {
-    // Распаковка управления
-    const float throttle = control.throttle;
-    const float yaw = control.yaw;
-    const float pitch = control.pitch;
-    const float roll = control.roll;
-
-    // Микширование каналов для X-конфигурации
-    motors[0].write(throttle + yaw + pitch + roll);  // Задний левый
-    motors[1].write(throttle - yaw + pitch - roll);  // Задний правый
-    motors[2].write(throttle + yaw - pitch + roll);  // Передний левый
-    motors[3].write(throttle - yaw - pitch - roll);  // Передний правый
-}
-
 void safetyCheck() {
-    if (millis() > shutdown_time_ms) {
-        // Плавное снижение тяги
-        control.throttle = max(0.0f, control.throttle - 0.02f);
+    if (timeout_manager.expired()) {
+        control.thrust = max(0.0f, control.thrust - 0.02f);
 
-        // Сброс управления
         control.yaw = 0;
         control.pitch = 0;
         control.roll = 0;
@@ -115,7 +136,8 @@ void loop() {
     constexpr auto ms_delay = 1000 / loop_hz;
 
     safetyCheck();
-    sendMotors();
+
+    frame_driver.mixin(control.thrust, control.roll, control.pitch, control.yaw);
 
     delay(ms_delay);
 }
