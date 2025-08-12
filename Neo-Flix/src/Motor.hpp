@@ -7,7 +7,7 @@ struct Motor final {
 
 private:
 
-    static constexpr auto pwm_frequency = 78000;
+    static constexpr auto pwm_frequency = 10000;
     static constexpr auto pwm_resolution = 10;
 
     const uint8_t pin;
