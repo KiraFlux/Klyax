@@ -5,10 +5,10 @@
 
 struct Motor final {
 
-private:
-
-    static constexpr auto pwm_frequency = 10000;
+    static constexpr auto pwm_frequency = 78000;
     static constexpr auto pwm_resolution = 10;
+
+private:
 
     const uint8_t pin;
 
@@ -22,15 +22,15 @@ public:
         ledcAttachPin(pin, pin);
     }
 
-    void write(float value) const noexcept {
-        ledcWrite(pin, calcDuty(constrain(value, 0, 1)));
+    void write(float value) const {
+        ledcWrite(pin, calcDuty(value));
     }
 
 private:
 
-    inline static uint32_t calcDuty(float value) noexcept {
-        constexpr auto pwm_max = (1 << pwm_resolution) - 1;
-        return static_cast<uint32_t>(value * pwm_max);
+    static uint32_t calcDuty(float value) {
+        constexpr auto max_pwm = (1 << pwm_resolution) - 1;
+        value = constrain(value, 0.0f, 1.0f);
+        return value * max_pwm;
     }
-
 };

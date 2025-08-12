@@ -6,95 +6,116 @@
 #include "ela/vec3.hpp"
 
 
-struct [[gnu::packed]] DualJoyPacket {
-    float x, y, a;
+#define LOG(x) Serial.println(x)
+
+struct DroneControl {
+    /// left_x Поворот Z [-1.0 .. 1.0]
+    float yaw;
+
+    /// left_y Тяга [0.0 .. 1.0]
+    float throttle;
+
+    /// right_x поворот бок влево-вправо [-1.0 .. 1.0]
+    float roll;
+
+    /// right_y поворот вперед-назад [-1.0 .. 1.0]
+    float pitch;
+
+
+    bool f1, f2, f3, f4; // Дополнительные функции от пульта
 };
+
+DroneControl control;
 
 static constexpr espnow::Mac target = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
 
-constexpr auto joy_packet_timeout_ms = 500;
+constexpr auto shutdown_timeout_ms = 1000;
 
+uint32_t shutdown_time_ms = 0;
+
+// Конфигурация моторов (X-расположение)
 static Motor motors[4] = {
-    Motor(12), // M0 - Back Left
-    Motor(13), // M1 - Back Right
-    Motor(14), // M2 - Front Left
-    Motor(15), // M3 - Front Right
+    Motor(12), // M0 - Задний левый
+    Motor(13), // M1 - Задний правый
+    Motor(14), // M2 - Передний левый
+    Motor(15), // M3 - Передний правый
 };
 
-bool running = false;
-
-uint32_t stop_time_ms = 0;
-
-ela::vec3f vel;
-
-void f(const espnow::Mac &mac, const void *data, rs::u8 size) {
-    if (size != sizeof(DualJoyPacket)) {
+void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
+    if (size != sizeof(DroneControl)) {
+        LOG("Packet err");
         return;
     }
 
-    stop_time_ms = millis() + joy_packet_timeout_ms;
-
-    const auto &packet = *static_cast<const DualJoyPacket *>(data);
-    vel.x = constrain(packet.x, -1, 1);
-    vel.y = constrain(packet.y, -1, 1);
-    vel.z = constrain(packet.a, 0, 1);
+    control = *reinterpret_cast<const DroneControl *>(data);
+    control.throttle = constrain(control.throttle, 0.0, 1.0);
+    shutdown_time_ms = millis() + shutdown_timeout_ms;
 }
 
 void setup() {
+    Serial.begin(115200);
+    LOG("Init...");
+
     for (auto &m: motors) {
         m.init();
+        m.write(0); // Инициализация с нулевой мощностью
     }
 
-    Serial.begin(115200);
+    LOG("Init Done");
 
-    {
-        WiFiClass::mode(WIFI_MODE_STA);
-
-        const auto result = espnow::Protocol::init();
-
-        if (result.fail()) {
-            Serial.println(rs::toString(result.error));
-        }
+    WiFiClass::mode(WIFI_MODE_STA);
+    const auto init_result = espnow::Protocol::init();
+    if (init_result.fail()) {
+        LOG(rs::toString(init_result.error));
     }
 
-    {
-        const auto result = espnow::Peer::add(target);
-
-        if (result.fail()) {
-            Serial.println(rs::toString(result.error));
-        }
+    const auto peer_result = espnow::Peer::add(target);
+    if (peer_result.fail()) {
+        LOG(rs::toString(peer_result.error));
     }
 
-    {
-        const auto result = espnow::Protocol::instance().setReceiveHandler(f);
-
-        if (result.fail()) {
-            Serial.println(rs::toString(result.error));
-        }
+    const auto handler_result = espnow::Protocol::instance().setReceiveHandler(onEspNowMessage);
+    if (handler_result.fail()) {
+        LOG(rs::toString(handler_result.error));
     }
 
-    Serial.println("Start!");
+    // Инициализация времени безопасности
+    shutdown_time_ms = millis() + shutdown_timeout_ms;
+    LOG("Start!");
+}
+
+void sendMotors() {
+    // Распаковка управления
+    const float throttle = control.throttle;
+    const float yaw = control.yaw;
+    const float pitch = control.pitch;
+    const float roll = control.roll;
+
+    // Микширование каналов для X-конфигурации
+    motors[0].write(throttle + yaw + pitch + roll);  // Задний левый
+    motors[1].write(throttle - yaw + pitch - roll);  // Задний правый
+    motors[2].write(throttle + yaw - pitch + roll);  // Передний левый
+    motors[3].write(throttle - yaw - pitch - roll);  // Передний правый
+}
+
+void safetyCheck() {
+    if (millis() > shutdown_time_ms) {
+        // Плавное снижение тяги
+        control.throttle = max(0.0f, control.throttle - 0.02f);
+
+        // Сброс управления
+        control.yaw = 0;
+        control.pitch = 0;
+        control.roll = 0;
+    }
 }
 
 void loop() {
-    running = millis() < stop_time_ms;
+    constexpr auto loop_hz = 100;
+    constexpr auto ms_delay = 1000 / loop_hz;
 
-    if (not running) {
-        vel.x = 0;
-        vel.y = 0;
-        vel.z = 0;
+    safetyCheck();
+    sendMotors();
 
-        for (auto &m: motors) {
-            m.write(0);
-        }
-
-        return;
-    }
-
-    motors[0].write(vel.y + vel.x + vel.z); // Задний левый
-    motors[1].write(vel.y - vel.x + vel.z); // Задний правый
-    motors[2].write(vel.y + vel.x + vel.z); // Передний левый
-    motors[3].write(vel.y - vel.x + vel.z); // Передний правый
-
-//    Serial.printf("%.3f\t%.3f\t%.3f\n", vel.x, vel.y, vel.z);
+    delay(ms_delay);
 }
