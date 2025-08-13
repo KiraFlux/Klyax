@@ -1,5 +1,6 @@
 #include "PID.hpp"
 
+
 #define Logger_level Logger_level_debug
 
 #include <Arduino.h>
@@ -13,11 +14,14 @@
 
 
 struct DroneControl {
+    static constexpr float tilt_max_rad = M_PI / 6.0f;
+    static constexpr float yaw_to_rad = 1.0f * M_PI;
+
     /// YAW
     /// [-1.0 .. 1.0]
     /// Поворот в плоскости XY
     /// Канал пульта: left_x
-    float yaw;
+    float yaw_power;
 
     /// THRUST
     /// [10.0 .. 1.0]
@@ -29,16 +33,32 @@ struct DroneControl {
     /// [-1.0 .. 1.0]
     /// Смещение по оси Y
     /// Канал пульта: right_x
-    float roll;
+    float roll_power;
 
     /// PITCH
     /// [-1.0 .. 1.0]
     /// Смещение по оси X
     /// Канал пульта: right_y
-    float pitch;
+    float pitch_power;
 
     /// Включено
     bool armed;
+
+    /// Roll (Крен) - Поворот вокруг оси X (вперёд)
+    inline float roll() const {
+        return roll_power * tilt_max_rad;
+    }
+
+    /// Pitch (Тангаж) - Поворот вокруг оси Y (вправо)
+    inline float pitch() const {
+        return pitch_power * tilt_max_rad;
+    }
+
+    /// Yaw (Рыскание) - Поворот вокруг оси Z (вниз)
+    inline float yaw() const {
+        return yaw_power * yaw_to_rad;
+    }
+
 };
 
 static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
@@ -58,7 +78,19 @@ static DroneFrameDriver frame_driver{
 
 static EasyImu imu;
 
-static
+static PID::Settings roll_or_pitch_settings{
+    .p=0.05f, .i=0.2f, .d=0.001f, .i_limit=0.3
+};
+
+static PID::Settings yaw_pid_settings{
+    .p=0.3f, .i=0.0f, .d=0.0f, .i_limit=0.3f
+};
+
+static PID pitch_pid{roll_or_pitch_settings, 0.2};
+
+static PID roll_pid{roll_or_pitch_settings, 0.2};
+
+static PID yaw_pid{yaw_pid_settings};
 
 void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 
@@ -88,10 +120,10 @@ void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 
     const auto &DJC = *reinterpret_cast<const DualJotControlPacket *>(data);
 
-    control.yaw = DJC.left_x;
+    control.yaw_power = DJC.left_x;
     control.thrust = DJC.left_y;
-    control.roll = -DJC.right_x;
-    control.pitch = -DJC.right_y;
+    control.roll_power = -DJC.right_x;
+    control.pitch_power = -DJC.right_y;
     control.armed = DJC.toggle_left;
 }
 
@@ -150,38 +182,44 @@ void setup() {
 
     if (not initEspNow()) { fatal(); }
 
-//    Logger::instance().write_func = [](const char *message, size_t length) {
-//        espnow::Protocol::send(control_mac, message, length);
-//    };
+    Logger::instance().write_func = [](const char *message, size_t length) {
+        espnow::Protocol::send(control_mac, message, length);
+    };
 
     Logger_info("Start!");
 }
 
 void loop() {
-    constexpr auto loop_frequency_hz = 100;
+    constexpr auto loop_frequency_hz = 500;
     constexpr auto loop_period_ms = 1000 / loop_frequency_hz;
     constexpr float dt = loop_period_ms * 1e-3;
 
     delay(loop_period_ms);
 
-//    if (timeout_manager.expired()) {
-//        control.thrust = max(0.0f, control.thrust - 0.02f);
-//
-//        control.yaw = 0;
-//        control.pitch = 0;
-//        control.roll = 0;
-//    }
-//
-//    frame_driver.mixin(control.thrust, control.roll, control.pitch, control.yaw);
+    if (timeout_manager.expired()) {
+        control.thrust = max(0.0f, control.thrust - 0.01f);
 
-    const auto data = imu.read(dt);
-
-    if (data.some()) {
-        Logger_debug(
-            "A[%+.2f %+.2f %+.2f]\tR[%+3.1f %+3.1f %+3.1f]",
-            data.value.linear_acceleration.x, data.value.linear_acceleration.y, data.value.linear_acceleration.z,
-            degrees(data.value.orientation.x), degrees(data.value.orientation.y), degrees(data.value.orientation.z)
-        );
+        control.yaw_power = 0;
+        control.pitch_power = 0;
+        control.roll_power = 0;
+        control.armed = false;
     }
+
+    if (control.armed) {
+        const auto data = imu.read(dt);
+
+        if (data.some()) {
+            const auto &ned = data.value;
+
+            float roll = roll_pid.calc(control.roll() - ned.roll(), dt);
+            float pitch = pitch_pid.calc(control.pitch() - ned.pitch(), dt);
+            float yaw = yaw_pid.calc(control.yaw() - ned.yaw(), dt);
+
+            frame_driver.mixin(control.thrust, roll, pitch, yaw);
+        }
+    } else {
+        frame_driver.disable();
+    }
+
 
 }

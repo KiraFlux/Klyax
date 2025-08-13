@@ -160,6 +160,21 @@ public:
         /// Y: East (Вправо)
         /// Z: Down (Вниз)
         ela::vec3f linear_acceleration;
+
+        /// Roll (Крен) - Поворот вокруг оси X (вперёд)
+        inline float roll() const {
+            return orientation.x;
+        }
+
+        /// Pitch (Тангаж) - Поворот вокруг оси Y (вправо)
+        inline float pitch() const {
+            return orientation.y;
+        }
+
+        /// Yaw (Рыскание) - Поворот вокруг оси Z (вниз)
+        inline float yaw() const {
+            return orientation.z;
+        }
     };
 
     rs::Option<NedCoordinateSystem> read(float dt) noexcept {

@@ -9,7 +9,7 @@ struct PID {
 public:
 
     struct Settings {
-        float kp, ki, kd, i_limit;
+        float p, i, d, i_limit;
     };
 
     const Settings &settings;
@@ -27,18 +27,24 @@ public:
         settings{settings}, dx_filter{dx_filter_alpha} {}
 
     float calc(float error, float dt) {
-        if (settings.kp != 0) {
+        if (settings.p != 0) {
             ix += error * dt;
             ix = constrain(ix, -settings.i_limit, settings.i_limit);
         }
 
-        if (settings.kd != 0) {
+        if (settings.d != 0) {
             if (dt > 0) {
                 dx = dx_filter.calc((error - last_error) / dt);
             }
             last_error = error;
         }
 
-        return settings.kp * error + settings.ki * ix + settings.kd * dx;
+        return settings.p * error + settings.i * ix + settings.d * dx;
+    }
+
+    void reset() {
+        dx = 0;
+        ix = 0;
+        last_error = 0;
     }
 };

@@ -39,9 +39,15 @@ struct DroneFrameDriver {
         float pitch,
         float yaw
     ) const {
-        motors[BackLeft].write(thrust - roll - pitch + yaw);
-        motors[BackRight].write(thrust + roll - pitch - yaw);
-        motors[FrontRight].write(thrust + roll + pitch + yaw);
-        motors[FrontLeft].write(thrust - roll + pitch - yaw);
+        motors[BackLeft].write(thrust + roll - pitch + yaw);
+        motors[BackRight].write(thrust - roll - pitch - yaw);
+        motors[FrontRight].write(thrust - roll + pitch + yaw);
+        motors[FrontLeft].write(thrust + roll + pitch - yaw);
+    }
+
+    void disable() const {
+        for (auto &m: motors) {
+            m.write(0);
+        }
     }
 };
