@@ -1,6 +1,6 @@
 #pragma once
 
-#include "utils.hpp"
+#include "Logger.hpp"
 #include "Motor.hpp"
 
 
@@ -23,14 +23,14 @@ struct DroneFrameDriver {
     const Motor motors[MotorIndex::TotalCount];
 
     void init() const {
-        LOG("Motors Init");
+        Logger_info("Motors Init");
 
         for (auto &m: motors) {
             m.init();
             m.write(0);
         }
 
-        LOG("Motors Success");
+        Logger_debug("Motors Success");
     }
 
     void mixin(

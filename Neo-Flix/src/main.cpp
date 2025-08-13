@@ -1,3 +1,5 @@
+#define Logger_level Logger_level_debug
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include "espnow/Protocol.hpp"
@@ -6,8 +8,6 @@
 #include "DroneFrameDriver.hpp"
 #include "PacketTimeoutManager.hpp"
 
-
-static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
 
 struct DroneControl {
     /// YAW
@@ -35,9 +35,11 @@ struct DroneControl {
     float pitch;
 };
 
-DroneControl control;
+static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
 
-PacketTimeoutManager timeout_manager{1000};
+static DroneControl control;
+
+static PacketTimeoutManager timeout_manager{200};
 
 DroneFrameDriver frame_driver{
     .motors={
@@ -63,12 +65,12 @@ void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
     };
 
     if (mac != control_mac) {
-        LOG("got message from unknown device");
+        Logger_warn("got message from unknown device");
         return;
     }
 
     if (size != sizeof(DualJotControlPacket)) {
-        LOG("invalid packet size");
+        Logger_warn("invalid packet size");
         return;
     }
 
@@ -83,7 +85,7 @@ void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 }
 
 bool initEspNow() {
-    LOG("ESPNOW Init");
+    Logger_info("ESPNOW Init");
 
     const bool wifi_ok = WiFiClass::mode(WIFI_MODE_STA);
     if (not wifi_ok) {
@@ -92,33 +94,46 @@ bool initEspNow() {
 
     const auto init_result = espnow::Protocol::init();
     if (init_result.fail()) {
-        LOG(rs::toString(init_result.error));
+        Logger_error(rs::toString(init_result.error));
         return false;
     }
 
     const auto peer_result = espnow::Peer::add(control_mac);
     if (peer_result.fail()) {
-        LOG(rs::toString(peer_result.error));
+        Logger_error(rs::toString(peer_result.error));
         return false;
     }
 
     const auto handler_result = espnow::Protocol::instance().setReceiveHandler(onEspNowMessage);
     if (handler_result.fail()) {
-        LOG(rs::toString(handler_result.error));
+        Logger_error(rs::toString(handler_result.error));
         return false;
     }
 
-    LOG("ESPNOW Success");
+    Logger_debug("ESPNOW Success");
     return true;
 }
 
 void setup() {
     Serial.begin(115200);
 
-    frame_driver.init();
-    initEspNow();
+    Logger::instance().write_func = [](const char *message, size_t length) {
+        Serial.write(message, length);
+    };
 
-    LOG("Start!");
+    frame_driver.init();
+
+    if (not initEspNow()) {
+        Logger_fatal("Espnow init error. Reboot in 5 sec");
+        delay(5000);
+        ESP.restart();
+    }
+
+    Logger::instance().write_func = [](const char *message, size_t length) {
+        espnow::Protocol::send(control_mac, message, length);
+    };
+
+    Logger_info("Start!");
 }
 
 void safetyCheck() {
