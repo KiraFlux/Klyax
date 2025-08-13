@@ -1,0 +1,44 @@
+#pragma once
+
+#include "filters.hpp"
+#include "Arduino.h"
+
+
+struct PID {
+
+public:
+
+    struct Settings {
+        float kp, ki, kd, i_limit;
+    };
+
+    const Settings &settings;
+
+private:
+
+    LowFrequencyFilter<float> dx_filter;
+    float dx{0};
+    float ix{0};
+    float last_error{0};
+
+public:
+
+    explicit PID(const Settings &settings, float dx_filter_alpha = 1.0) :
+        settings{settings}, dx_filter{dx_filter_alpha} {}
+
+    float calc(float error, float dt) {
+        if (settings.kp != 0) {
+            ix += error * dt;
+            ix = constrain(ix, -settings.i_limit, settings.i_limit);
+        }
+
+        if (settings.kd != 0) {
+            if (dt > 0) {
+                dx = dx_filter.calc((error - last_error) / dt);
+            }
+            last_error = error;
+        }
+
+        return settings.kp * error + settings.ki * ix + settings.kd * dx;
+    }
+};

@@ -23,14 +23,14 @@ struct DroneFrameDriver {
     const Motor motors[MotorIndex::TotalCount];
 
     void init() const {
-        Logger_info("Motors Init");
+        Logger_info("init");
 
         for (auto &m: motors) {
             m.init();
             m.write(0);
         }
 
-        Logger_debug("Motors Success");
+        Logger_debug("success");
     }
 
     void mixin(

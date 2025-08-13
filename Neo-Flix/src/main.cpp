@@ -1,3 +1,5 @@
+#include "PID.hpp"
+
 #define Logger_level Logger_level_debug
 
 #include <Arduino.h>
@@ -7,6 +9,7 @@
 
 #include "DroneFrameDriver.hpp"
 #include "PacketTimeoutManager.hpp"
+#include "EasyImu.hpp"
 
 
 struct DroneControl {
@@ -33,6 +36,9 @@ struct DroneControl {
     /// Смещение по оси X
     /// Канал пульта: right_y
     float pitch;
+
+    /// Включено
+    bool armed;
 };
 
 static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
@@ -41,7 +47,7 @@ static DroneControl control;
 
 static PacketTimeoutManager timeout_manager{200};
 
-DroneFrameDriver frame_driver{
+static DroneFrameDriver frame_driver{
     .motors={
         Motor(12),
         Motor(13),
@@ -49,6 +55,10 @@ DroneFrameDriver frame_driver{
         Motor(15),
     }
 };
+
+static EasyImu imu;
+
+static
 
 void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 
@@ -82,10 +92,11 @@ void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
     control.thrust = DJC.left_y;
     control.roll = -DJC.right_x;
     control.pitch = -DJC.right_y;
+    control.armed = DJC.toggle_left;
 }
 
-bool initEspNow() {
-    Logger_info("ESPNOW Init");
+static bool initEspNow() {
+    Logger_info("init");
 
     const bool wifi_ok = WiFiClass::mode(WIFI_MODE_STA);
     if (not wifi_ok) {
@@ -110,8 +121,13 @@ bool initEspNow() {
         return false;
     }
 
-    Logger_debug("ESPNOW Success");
+    Logger_debug("success");
     return true;
+}
+
+static void fatal() {
+    delay(5000);
+    ESP.restart();
 }
 
 void setup() {
@@ -123,36 +139,49 @@ void setup() {
 
     frame_driver.init();
 
-    if (not initEspNow()) {
-        Logger_fatal("Espnow init error. Reboot in 5 sec");
-        delay(5000);
-        ESP.restart();
-    }
+    if (not imu.init(GPIO_NUM_18, GPIO_NUM_19, GPIO_NUM_23, GPIO_NUM_5)) { fatal(); }
 
-    Logger::instance().write_func = [](const char *message, size_t length) {
-        espnow::Protocol::send(control_mac, message, length);
-    };
+    imu.gyro_bias = {0.5354f, -0.2246f, -1.4703};
+    imu.accel_bias = {-11.7188f, -13.1836f, -5.3711f};
+    imu.accel_scale = {+0.0010f, +0.0010f, +0.0010f};
+
+//    imu.calibrateGyro(1000);
+//    imu.calibrateAccel(1000);
+
+    if (not initEspNow()) { fatal(); }
+
+//    Logger::instance().write_func = [](const char *message, size_t length) {
+//        espnow::Protocol::send(control_mac, message, length);
+//    };
 
     Logger_info("Start!");
 }
 
-void safetyCheck() {
-    if (timeout_manager.expired()) {
-        control.thrust = max(0.0f, control.thrust - 0.02f);
-
-        control.yaw = 0;
-        control.pitch = 0;
-        control.roll = 0;
-    }
-}
-
 void loop() {
-    constexpr auto loop_hz = 100;
-    constexpr auto ms_delay = 1000 / loop_hz;
+    constexpr auto loop_frequency_hz = 100;
+    constexpr auto loop_period_ms = 1000 / loop_frequency_hz;
+    constexpr float dt = loop_period_ms * 1e-3;
 
-    safetyCheck();
+    delay(loop_period_ms);
 
-    frame_driver.mixin(control.thrust, control.roll, control.pitch, control.yaw);
+//    if (timeout_manager.expired()) {
+//        control.thrust = max(0.0f, control.thrust - 0.02f);
+//
+//        control.yaw = 0;
+//        control.pitch = 0;
+//        control.roll = 0;
+//    }
+//
+//    frame_driver.mixin(control.thrust, control.roll, control.pitch, control.yaw);
 
-    delay(ms_delay);
+    const auto data = imu.read(dt);
+
+    if (data.some()) {
+        Logger_debug(
+            "A[%+.2f %+.2f %+.2f]\tR[%+3.1f %+3.1f %+3.1f]",
+            data.value.linear_acceleration.x, data.value.linear_acceleration.y, data.value.linear_acceleration.z,
+            degrees(data.value.orientation.x), degrees(data.value.orientation.y), degrees(data.value.orientation.z)
+        );
+    }
+
 }
