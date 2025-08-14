@@ -27,17 +27,17 @@ public:
         settings{settings}, dx_filter{dx_filter_alpha} {}
 
     float calc(float error, float dt) {
-        if (settings.p != 0) {
-            ix += error * dt;
-            ix = constrain(ix, -settings.i_limit, settings.i_limit);
-        }
+        if (dt > 0) {
+            if (settings.p != 0) {
+                ix += error * dt;
+                ix = constrain(ix, -settings.i_limit, settings.i_limit);
+            }
 
-        if (settings.d != 0) {
-            if (dt > 0) {
+            if (settings.d != 0) {
                 dx = dx_filter.calc((error - last_error) / dt);
             }
-            last_error = error;
         }
+        last_error = error;
 
         return settings.p * error + settings.i * ix + settings.d * dx;
     }

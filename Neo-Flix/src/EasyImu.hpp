@@ -163,20 +163,35 @@ public:
         /// Z: Down (Вниз)
         ela::vec3f linear_acceleration;
 
-        /// Roll (Крен) - Поворот вокруг оси X (вперёд)
-        inline float roll() const {
-            return orientation.x;
-        }
+        /// Roll (Крен)
+        /// Поворот вокруг оси X (вперёд)
+        /// Радианы
+        inline float roll() const { return orientation.x; }
 
-        /// Pitch (Тангаж) - Поворот вокруг оси Y (вправо)
-        inline float pitch() const {
-            return orientation.y;
-        }
+        /// Roll (Крен)
+        /// Вращение вокруг оси X (вперёд)
+        /// Радианы / секунду
+        inline float rollVelocity() const { return angular_velocity.x; }
 
-        /// Yaw (Рыскание) - Поворот вокруг оси Z (вниз)
-        inline float yaw() const {
-            return orientation.z;
-        }
+        /// Pitch (Тангаж)
+        /// Поворот вокруг оси Y (вправо)
+        /// Радианы
+        inline float pitch() const { return orientation.y; }
+
+        /// Pitch (Тангаж)
+        /// Вращение вокруг оси Y (вправо)
+        /// Радианы / секунду
+        inline float pitchVelocity() const { return angular_velocity.y; }
+
+        /// Yaw (Рыскание)
+        /// Поворот вокруг оси Z (вниз)
+        /// Радианы
+        inline float yaw() const { return orientation.z; }
+
+        /// Yaw (Рыскание)
+        /// Вращение вокруг оси Z (вниз)
+        /// Радианы / секунду
+        inline float yawVelocity() const { return angular_velocity.z; }
     };
 
     rs::Option<NedCoordinateSystem> read(float dt) noexcept {
