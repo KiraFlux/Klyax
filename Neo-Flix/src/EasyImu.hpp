@@ -14,6 +14,8 @@ struct EasyImu final {
 
 public:
 
+    static constexpr float one_g = 9.80665f;
+
     ela::vec3f gyro_bias{};
     ela::vec3f accel_bias{};
     ela::vec3f accel_scale{1.0f, 1.0f, 1.0f};

@@ -11,6 +11,7 @@
 #include "DroneFrameDriver.hpp"
 #include "PacketTimeoutManager.hpp"
 #include "EasyImu.hpp"
+#include "ela/vec2.hpp"
 
 
 struct DroneControl {
@@ -220,6 +221,5 @@ void loop() {
     } else {
         frame_driver.disable();
     }
-
 
 }
