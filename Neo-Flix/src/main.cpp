@@ -79,35 +79,19 @@ static DroneFrameDriver frame_driver{
 
 static EasyImu imu;
 
-static PID::Settings roll_and_pitch_pid_settings{
-    .p = 6.0f, .i = 0.0f, .d = 0.0f, .i_limit = 0.0f
+static PID::Settings pid_settings{
+    .p = 0.3f,  // Уменьшено в 20 раз!
+    .i = 0.0f,
+    .d = 0.0f,
+    .i_limit = 0.0f
 };
 
-static PID::Settings yaw_pid_settings{
-    .p = 3.0f, .i = 0.0f, .d = 0.0f, .i_limit = 0.0f
-};
+// Регуляторы
+static PID roll_pid{pid_settings};
 
-static PID::Settings roll_and_pitch_rate_pid_settings{
-    .p = 0.05f, .i = 0.2f, .d = 0.001f, .i_limit = 0.3f
-};
+static PID pitch_pid{pid_settings};
 
-static PID::Settings yaw_rate_pid_settings{
-    .p = 0.3f, .i = 0.0f, .d = 0.0f, .i_limit = 0.3f
-};
-
-
-static PID roll_pid{roll_and_pitch_pid_settings};
-
-static PID pitch_pid{roll_and_pitch_pid_settings};
-
-static PID yaw_pid{yaw_pid_settings};
-
-static PID roll_rate_pid{roll_and_pitch_rate_pid_settings, 0.2f};
-
-static PID pitch_rate_pid{roll_and_pitch_rate_pid_settings, 0.2f};
-
-static PID yaw_rate_pid{yaw_rate_pid_settings, 1.0f};
-
+static PID yaw_pid{pid_settings};
 
 void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 
@@ -199,10 +183,6 @@ void setup() {
 
     if (not initEspNow()) { fatal(); }
 
-//    Logger::instance().write_func = [](const char *message, size_t length) {
-//        espnow::Protocol::send(control_mac, message, length);
-//    };
-
     Logger_info("Start!");
 }
 
@@ -227,39 +207,52 @@ void loop() {
         if (data.some()) {
             const auto &ned = data.value;
 
-            // 1. Рассчитываем ошибки ориентации
+            // Рассчитываем ошибки с защитой от NaN
             const float roll_error = control.roll() - ned.roll();
             const float pitch_error = control.pitch() - ned.pitch();
             const float yaw_error = control.yaw() - ned.yaw();
 
-            // 2. Внешний контур: углы -> угловые скорости
-            const float roll_rate_target = roll_pid.calc(roll_error, dt);
-            const float pitch_rate_target = pitch_pid.calc(pitch_error, dt);
-            const float yaw_rate_target = yaw_pid.calc(yaw_error, dt);
+            // Рассчитываем управление с жестким ограничением
+            const float roll_corr = constrain(
+                roll_pid.calc(roll_error, dt),
+                -0.3f, 0.3f
+            );
 
-            // 3. Рассчитываем ошибки угловых скоростей
-            const float roll_rate_error = roll_rate_target - ned.rollVelocity();
-            const float pitch_rate_error = pitch_rate_target - ned.pitchVelocity();
-            const float yaw_rate_error = yaw_rate_target - ned.yawVelocity();
+            const float pitch_corr = constrain(
+                pitch_pid.calc(pitch_error, dt),
+                -0.3f, 0.3f
+            );
 
-            // 4. Внутренний контур: угловые скорости -> управляющие моменты
-            const float roll_torque = roll_rate_pid.calc(roll_rate_error, dt);
-            const float pitch_torque = pitch_rate_pid.calc(pitch_rate_error, dt);
-            const float yaw_torque = yaw_rate_pid.calc(yaw_rate_error, dt);
+            const float yaw_corr = constrain(
+                yaw_pid.calc(yaw_error, dt),
+                -0.2f, 0.2f
+            );
 
-            frame_driver.mixin(control.thrust, roll_torque, pitch_torque, yaw_torque);
+            // Безопасное значение тяги
+            const float safe_thrust = constrain(control.thrust, 0.0f, 0.5f);
 
+            // Применяем управление
+            frame_driver.mixin(safe_thrust, roll_corr, pitch_corr, yaw_corr);
+
+            // Расширенное логирование
             static uint32_t next_log_ms = 0;
             if (millis() > next_log_ms) {
-                next_log_ms = millis() + 100;
+                next_log_ms = millis() + 50; // Чаще
                 Logger_debug(
-                    "[err|rate|out]"
-                    "Roll: [%.1f %.1f/s %.2f]\t"
-                    "Pitch: [%.1f %.1f/s %.2f]\t"
-                    "Yaw: [%.1f %.1f/s %.2f]",
-                    degrees(roll_error), degrees(roll_rate_error), roll_torque,
-                    degrees(pitch_error), degrees(pitch_rate_error), pitch_torque,
-                    degrees(yaw_error), degrees(yaw_rate_error), yaw_torque
+                    "Roll: t%.1f° a%.1f° e%.1f° c%.2f | "
+                    "Pitch: t%.1f° a%.1f° e%.1f° c%.2f | "
+                    "Thrust: %.2f",
+                    degrees(control.roll()),
+                    degrees(ned.roll()),
+                    degrees(roll_error),
+                    roll_corr,
+
+                    degrees(control.pitch()),
+                    degrees(ned.pitch()),
+                    degrees(pitch_error),
+                    pitch_corr,
+
+                    safe_thrust
                 );
             }
         }
@@ -268,9 +261,6 @@ void loop() {
         roll_pid.reset();
         pitch_pid.reset();
         yaw_pid.reset();
-        roll_rate_pid.reset();
-        pitch_rate_pid.reset();
-        yaw_rate_pid.reset();
     }
 
 }
