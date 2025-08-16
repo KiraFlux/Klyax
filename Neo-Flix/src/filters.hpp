@@ -6,21 +6,32 @@ private:
 
     const float alpha;
     const float one_minus_alpha{1.0f - alpha};
+    T filtered{};
+    bool first_step{false};
 
 public:
-
-    T filtered{};
 
     explicit LowFrequencyFilter(float alpha) noexcept:
         alpha{alpha} {}
 
     const T &calc(const T &x) noexcept {
+        if (first_step) {
+            first_step = false;
+            filtered = x;
+            return filtered;
+        }
+
         if (alpha == 1.0) {
             filtered = x;
-        } else {
-            filtered = filtered * one_minus_alpha + x * alpha;
+            return filtered;
         }
+
+        filtered = filtered * one_minus_alpha + x * alpha;
         return filtered;
+    }
+
+    void reset() {
+        first_step = true;
     }
 };
 
@@ -30,18 +41,27 @@ private:
 
     const float alpha;
     const float one_minus_alpha{1.0f - alpha};
+    T filtered{};
+    bool first_step{true};
 
 public:
-
-    T filtered{};
 
     explicit ComplementaryFilter(float alpha) :
         alpha{alpha} {}
 
     const T &calc(T x, T dx, float dt) {
-        T prediction = filtered + dx * dt;
+        if (first_step) {
+            first_step = false;
+            filtered = x;
+        } else {
+            T prediction = filtered + dx * dt;
+            filtered = alpha * prediction + one_minus_alpha * x;
+        }
 
-        filtered = alpha * prediction + one_minus_alpha * x;
         return filtered;
+    }
+
+    void reset() {
+        first_step = true;
     }
 };

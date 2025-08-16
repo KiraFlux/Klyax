@@ -7,7 +7,7 @@
 #include "ela/vec3.hpp"
 
 #include "filters.hpp"
-#include "NFLogger.hpp"
+#include "Logger.hpp"
 
 
 struct EasyImu final {
@@ -25,11 +25,9 @@ private:
     LowFrequencyFilter<ela::vec3f> accel_filter{0.2f};
     ComplementaryFilter<float> roll_filter{0.98f};
     ComplementaryFilter<float> pitch_filter{0.98f};
-    ComplementaryFilter<float> yaw_filter{0.98f};
+    float yaw{0.0f};
 
     ICM_20948_SPI imu;
-
-    bool first_read{true};
 
 public:
 
@@ -42,16 +40,29 @@ public:
         Logger_info("init");
         SPI.begin(sck, miso, mosi, cs);
 
-        imu.begin(cs, SPI);
+        imu.begin(cs, SPI, 7000000);
 
         if (imu.status != ICM_20948_Stat_Ok) {
             Logger_error("EasyImu init fail");
             return false;
         }
 
-        ICM_20948_fss_t fss;
-        fss.g = dps2000;
-        imu.setFullScale(ICM_20948_Internal_Gyr, fss);
+        ICM_20948_fss_t accel_fss;
+        accel_fss.a = gpm2;
+        imu.setFullScale(ICM_20948_Internal_Acc, accel_fss);
+
+        ICM_20948_fss_t gyro_fss;
+        gyro_fss.g = dps2000;
+        imu.setFullScale(ICM_20948_Internal_Gyr, gyro_fss);
+
+        imu.enableDLPF(ICM_20948_Internal_Acc, false);
+        imu.enableDLPF(ICM_20948_Internal_Gyr, false);
+
+        ICM_20948_smplrt_t sample_rate;
+        sample_rate.g = 0;
+        sample_rate.a = 0;
+        imu.setSampleRate(ICM_20948_Internal_Gyr, sample_rate);
+        imu.setSampleRate(ICM_20948_Internal_Acc, sample_rate);
 
         Logger_debug("success");
         return true;
@@ -99,8 +110,8 @@ public:
             "upside down",
             "nose up",
             "nose down",
-            "left",
-            "right"
+            "left side",
+            "right side"
         };
 
         for (int calib_orientation = 0; calib_orientation < orientations_total; calib_orientation += 1) {
@@ -137,9 +148,9 @@ public:
         accel_scale.z = 2.0f / (accel_max.z - accel_min.z);
 
         Logger_info("complete");
-        Logger_debug("Accel bias: %+.4f %+.4f %+.4f",
+        Logger_debug("Accel bias: { %+.4ff, %+.4ff, %+.4ff }",
                      accel_bias.x, accel_bias.y, accel_bias.z);
-        Logger_debug("Accel scale: %+.4f %+.4f %+.4f",
+        Logger_debug("Accel scale: { %+.4ff, %+.4ff, %+.4ff }",
                      accel_scale.x, accel_scale.y, accel_scale.z);
     }
 
@@ -194,46 +205,37 @@ public:
         inline float yawVelocity() const { return angular_velocity.z; }
     };
 
-    rs::Option<NedCoordinateSystem> read(float dt) noexcept {
+    NedCoordinateSystem read(float dt) noexcept {
         constexpr float deg_to_rad = M_PI / 180.0f;
 
-        if (!imu.dataReady()) { return {}; }
+        while (not imu.dataReady()) {}
 
         imu.getAGMT();
 
-        // Чтение и преобразование данных гироскопа (ИСПРАВЛЕНЫ ЗНАКИ)
         const ela::vec3f gyro{
-            (imu.gyrY() - gyro_bias.y) * deg_to_rad,   // Roll (крен) - БЕЗ МИНУСА
-            (imu.gyrX() - gyro_bias.x) * deg_to_rad,   // Pitch (тангаж) - БЕЗ МИНУСА
-            (imu.gyrZ() - gyro_bias.z) * deg_to_rad    // Yaw (рыскание)
+            (imu.gyrY() - gyro_bias.y) * deg_to_rad,
+            (imu.gyrX() - gyro_bias.x) * deg_to_rad,
+            (imu.gyrZ() - gyro_bias.z) * deg_to_rad
         };
 
-        // Чтение и преобразование данных акселерометра
         const ela::vec3f accel = accel_filter.calc(
             {
-                -(imu.accY() - accel_bias.y) * accel_scale.y,  // X: вперёд
-                -(imu.accX() - accel_bias.x) * accel_scale.x,  // Y: вправо
-                (imu.accZ() - accel_bias.z) * accel_scale.z    // Z: вниз
+                -(imu.accY() - accel_bias.y) * accel_scale.y,
+                -(imu.accX() - accel_bias.x) * accel_scale.x,
+                (imu.accZ() - accel_bias.z) * accel_scale.z
             }
         );
 
-        // Вычисляем углы по акселерометру (ИСПРАВЛЕНЫ ЗНАКИ)
         const float roll_acc = atan2f(accel.y, accel.z);
         const float pitch_acc = -atan2f(accel.x, accel.z);
 
-        // Инициализация фильтров при первом вызове
-        if (first_read) {
-            first_read = false;
-            roll_filter.filtered = roll_acc;
-            pitch_filter.filtered = pitch_acc;
-            yaw_filter.filtered = 0;
-        }
+        yaw = yaw + gyro.z * dt;
 
         return NedCoordinateSystem{
             .orientation = {
                 normalizeAngle(roll_filter.calc(roll_acc, gyro.x, dt)),
                 normalizeAngle(pitch_filter.calc(pitch_acc, gyro.y, dt)),
-                normalizeAngle(yaw_filter.calc(0, -gyro.z, dt))
+                yaw
             },
             .angular_velocity = gyro,
             .linear_acceleration = accel
