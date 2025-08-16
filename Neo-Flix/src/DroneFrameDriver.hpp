@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Logger.hpp"
+#include "NFLogger.hpp"
 #include "Motor.hpp"
 
 

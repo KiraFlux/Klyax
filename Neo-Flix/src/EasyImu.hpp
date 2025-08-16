@@ -7,7 +7,7 @@
 #include "ela/vec3.hpp"
 
 #include "filters.hpp"
-#include "Logger.hpp"
+#include "NFLogger.hpp"
 
 
 struct EasyImu final {

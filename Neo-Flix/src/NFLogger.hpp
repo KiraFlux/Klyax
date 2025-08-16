@@ -3,14 +3,14 @@
 #include "Arduino.h"
 
 
-struct Logger {
+struct NfLogger {
 
     using WriteFunction = void (*)(const char *, size_t);
 
     WriteFunction write_func{nullptr};
 
-    static Logger &instance() {
-        static Logger instance;
+    static NfLogger &instance() {
+        static NfLogger instance;
         return instance;
     }
 
@@ -59,7 +59,7 @@ struct Logger {
 
 private:
 
-    Logger() = default;
+    NfLogger() = default;
 };
 
 /// Debug
@@ -81,31 +81,31 @@ private:
 #endif
 
 #if Logger_level_debug >= Logger_level
-#define Logger_debug(...)   Logger::instance().log("Debug",   __PRETTY_FUNCTION__, __VA_ARGS__)
+#define Logger_debug(...)   NfLogger::instance().log("Debug",   __PRETTY_FUNCTION__, __VA_ARGS__)
 #else
 #define Logger_debug(...)
 #endif
 
 #if Logger_level_info >= Logger_level
-#define Logger_info(...)   Logger::instance().log("Info",   __PRETTY_FUNCTION__, __VA_ARGS__)
+#define Logger_info(...)   NfLogger::instance().log("Info",   __PRETTY_FUNCTION__, __VA_ARGS__)
 #else
 #define Logger_info(...)
 #endif
 
 #if Logger_level_warn >= Logger_level
-#define Logger_warn(...)   Logger::instance().log("Warn",   __PRETTY_FUNCTION__, __VA_ARGS__)
+#define Logger_warn(...)   NfLogger::instance().log("Warn",   __PRETTY_FUNCTION__, __VA_ARGS__)
 #else
 #define Logger_warn(...)
 #endif
 
 #if Logger_level_error >= Logger_level
-#define Logger_error(...)   Logger::instance().log("Error",   __PRETTY_FUNCTION__, __VA_ARGS__)
+#define Logger_error(...)   NfLogger::instance().log("Error",   __PRETTY_FUNCTION__, __VA_ARGS__)
 #else
 #define Logger_error(...)
 #endif
 
 #if Logger_level_fatal >= Logger_level
-#define Logger_fatal(...)   Logger::instance().log("Fatal",   __PRETTY_FUNCTION__, __VA_ARGS__)
+#define Logger_fatal(...)   NfLogger::instance().log("Fatal",   __PRETTY_FUNCTION__, __VA_ARGS__)
 #else
 #define Logger_fatal(...)
 #endif
