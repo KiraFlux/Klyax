@@ -6,8 +6,8 @@
 
 #include "ela/vec3.hpp"
 
-#include "filters.hpp"
-#include "Logger.hpp"
+#include "tools/filters.hpp"
+#include "tools/Logger.hpp"
 
 
 struct EasyImu final {
