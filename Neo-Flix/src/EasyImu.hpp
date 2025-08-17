@@ -23,6 +23,7 @@ public:
 private:
 
     LowFrequencyFilter<ela::vec3f> accel_filter{0.2f};
+    LowFrequencyFilter<ela::vec3f> gyro_filter{0.35};
     ComplementaryFilter<float> roll_filter{0.98f};
     ComplementaryFilter<float> pitch_filter{0.98f};
     float yaw{0.0f};
@@ -76,15 +77,12 @@ public:
         ela::vec3f gyro_sum;
 
         for (int i = 0; i < samples; i++) {
-            if (imu.dataReady()) {
-                imu.getAGMT();
+            while (not imu.dataReady()) {}
+            imu.getAGMT();
 
-                gyro_sum.x += imu.gyrX();
-                gyro_sum.y += imu.gyrY();
-                gyro_sum.z += imu.gyrZ();
-            }
-
-            delay(10);
+            gyro_sum.x += imu.gyrX();
+            gyro_sum.y += imu.gyrY();
+            gyro_sum.z += imu.gyrZ();
         }
 
         gyro_bias.x = gyro_sum.x / s;
@@ -212,11 +210,13 @@ public:
 
         imu.getAGMT();
 
-        const ela::vec3f gyro{
-            (imu.gyrY() - gyro_bias.y) * deg_to_rad,
-            (imu.gyrX() - gyro_bias.x) * deg_to_rad,
-            (imu.gyrZ() - gyro_bias.z) * deg_to_rad
-        };
+        const ela::vec3f gyro = gyro_filter.calc(
+            {
+                (imu.gyrY() - gyro_bias.y) * deg_to_rad,
+                (imu.gyrX() - gyro_bias.x) * deg_to_rad,
+                (imu.gyrZ() - gyro_bias.z) * deg_to_rad
+            }
+        );
 
         const ela::vec3f accel = accel_filter.calc(
             {

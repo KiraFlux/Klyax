@@ -2,42 +2,59 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+
 #include "espnow/Protocol.hpp"
 
+#include "tools/Logger.hpp"
+#include "tools/time.hpp"
 
 #include "DroneFrameDriver.hpp"
-#include "tools/time.hpp"
 #include "EasyImu.hpp"
+#include "tools/PID.hpp"
 
 
-struct DroneControl {
+struct DroneControl final {
+
+    /// Преобразование воздействия пульта в угловую скорость
+    /// Радиан / секунду
+    static constexpr float power_to_angular_velocity = 3.0;
+
     /// ROLL
     /// [-1.0 .. 1.0]
-    /// Смещение по оси Y
     /// Канал пульта: right_x
     float roll_power;
 
     /// PITCH
     /// [-1.0 .. 1.0]
-    /// Смещение по оси X
     /// Канал пульта: right_y
     float pitch_power;
 
     /// YAW
     /// [-1.0 .. 1.0]
-    /// Поворот в плоскости XY
     /// Канал пульта: left_x
     float yaw_power;
 
     /// THRUST
     /// [10.0 .. 1.0]
-    /// Смещение по оси Z
     /// Канал пульта: left_y
     float thrust;
 
     /// Включено
     bool armed;
+
+    /// Интерпретировать pitch как угловую скорость
+    inline float pitchVelocity() const { return pitch_power * power_to_angular_velocity; }
+
+    /// Интерпретировать roll как угловую скорость
+    inline float rollVelocity() const { return roll_power * power_to_angular_velocity; }
+
+    /// Интерпретировать yaw как угловую скорость
+    inline float yawVelocity() const { return yaw_power * power_to_angular_velocity; }
 };
+
+void led(bool state) {
+    digitalWrite(2, state);
+}
 
 static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
 
@@ -66,6 +83,7 @@ void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 
         bool mode_toggle;
         bool mode_hold;
+        bool waiting_for_remote_menu;
     };
 
     if (mac != control_mac) {
@@ -84,7 +102,7 @@ void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 
     control.yaw_power = DJC.left_x;
     control.thrust = DJC.left_y;
-    control.roll_power = -DJC.right_x;
+    control.roll_power = DJC.right_x;
     control.pitch_power = -DJC.right_y;
     control.armed = DJC.mode_toggle;
 }
@@ -120,11 +138,15 @@ static bool initEspNow() {
 }
 
 static void fatal() {
+    Logger_fatal("Fatal Error. Reboot in 5s");
     delay(5000);
     ESP.restart();
 }
 
 void setup() {
+    pinMode(2, OUTPUT);
+    led(HIGH);
+
     Serial.begin(115200);
 
     Logger::instance().write_func = [](const char *message, size_t length) {
@@ -141,36 +163,100 @@ void setup() {
     imu.accel_bias = {-13.6719f, -17.8223f, -2.9297f};
     imu.accel_scale = {+0.0010f, +0.0010f, +0.0010f};
 
-//    imu.calibrateGyro(1000);
+    imu.calibrateGyro(5000);
 //    imu.calibrateAccel(1000);
 
+    led(LOW);
     Logger_info("Start!");
 }
 
+void slowDownValue(float &value, float k = 0.8) {
+    if (std::abs(value) > 0.01) {
+        value *= k;
+    } else {
+        value = 0;
+    }
+}
 
 void loop() {
-
     static Chronometer chronometer;
+
+    static PID::Settings pitch_or_roll_velocity_pid_settings{
+        .p = 0.05f,
+        .i = 0.01f,
+        .d = 0.0002f,
+        .i_limit = 0.1f,
+    };
+
+    static PID::Settings yaw_velocity_pid_settings{
+        .p = 0.04f,
+        .i = 0.005f,
+        .d = 0.0002f,
+        .i_limit = 0.1f
+    };
+
+    static PID pitch_velocity_pid{
+        pitch_or_roll_velocity_pid_settings,
+        0.1f,
+    };
+
+    static PID roll_velocity_pid{
+        pitch_or_roll_velocity_pid_settings,
+        0.1f
+    };
+
+    static PID yaw_velocity_pid{
+        yaw_velocity_pid_settings,
+        1.0f,
+    };
+
+    static LowFrequencyFilter<float> yaw_error_filter{0.3f};
 
     const auto dt = chronometer.calc();
 
-    const auto ned = imu.read(dt);
-
-    constexpr auto samples = 1000;
-
-    static uint32_t tick = 0;
-    if (tick >= samples) {
-        tick = 0;
-
-        Logger_info(
-            "A[%+.2f %+.2f %+.2f]\t"
-            "R[%+3.1f %+3.1f %+3.1f]\t"
-            "G[%+3.1f %+3.1f %+3.1f]",
-            ned.linear_acceleration.x, ned.linear_acceleration.y, ned.linear_acceleration.z,
-            ned.roll() * RAD_TO_DEG, ned.pitch() * RAD_TO_DEG, ned.yaw() * RAD_TO_DEG,
-            ned.rollVelocity() * RAD_TO_DEG, ned.pitchVelocity() * RAD_TO_DEG, ned.yawVelocity() * RAD_TO_DEG
-        );
+    if (timeout_manager.expired()) {
+        control.armed = false;
     }
-    tick += 1;
 
+    if (control.armed) {
+        const auto ned = imu.read(dt);
+
+        constexpr float critical_angle = 70 * DEG_TO_RAD;
+
+        if (std::abs(ned.pitch()) > critical_angle or std::abs(ned.roll()) > critical_angle) {
+            Logger_warn("Critical roll/pitch. Disarming");
+            control.armed = false;
+            return;
+        }
+
+        const float roll = roll_velocity_pid.calc(control.rollVelocity() - ned.rollVelocity(), dt);
+        const float pitch = pitch_velocity_pid.calc(control.pitchVelocity() - ned.pitchVelocity(), dt);
+
+        const float yaw_error = yaw_error_filter.calc(control.yawVelocity() - ned.yawVelocity());
+
+        float yaw = yaw_velocity_pid.calc(yaw_error, dt);
+        yaw = constrain(yaw, -1.0f, 1.0f);
+
+//        Logger_debug("yaw Set: %+.2f\tActual: %+.2f\tError: %+.2f\tOutput: %+.2f", control.yawVelocity(), ned.yawVelocity(), yaw_error, yaw);
+
+        frame_driver.mixin(
+            control.thrust,
+            roll,
+            pitch,
+            yaw
+        );
+
+    } else {
+        control.thrust = 0;
+        control.pitch_power = 0;
+        control.yaw_power = 0;
+        control.roll_power = 0;
+
+        pitch_velocity_pid.reset();
+        roll_velocity_pid.reset();
+        yaw_velocity_pid.reset();
+        yaw_error_filter.reset();
+
+        frame_driver.disable();
+    }
 }

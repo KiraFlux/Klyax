@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Arduino.h"
-
 
 struct Logger {
 
@@ -105,7 +103,7 @@ private:
 #endif
 
 #if Logger_level_fatal >= Logger_level
-#define Logger_fatal(...)   NfLogger::instance().log("Fatal",   __PRETTY_FUNCTION__, __VA_ARGS__)
+#define Logger_fatal(...)   Logger::instance().log("Fatal",   __PRETTY_FUNCTION__, __VA_ARGS__)
 #else
 #define Logger_fatal(...)
 #endif
