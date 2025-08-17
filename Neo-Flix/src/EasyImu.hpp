@@ -14,13 +14,15 @@ struct EasyImu final {
 
 public:
 
-    static constexpr float one_g = 9.80665f;
-
-    ela::vec3f gyro_bias{};
-    ela::vec3f accel_bias{};
-    ela::vec3f accel_scale{1.0f, 1.0f, 1.0f};
+    struct Settings {
+        ela::vec3f gyro_bias;
+        ela::vec3f accel_bias;
+        ela::vec3f accel_scale;
+    };
 
 private:
+
+    Settings &settings;
 
     LowFrequencyFilter<ela::vec3f> accel_filter{0.2f};
     LowFrequencyFilter<ela::vec3f> gyro_filter{0.35};
@@ -31,6 +33,9 @@ private:
     ICM_20948_SPI imu;
 
 public:
+
+    explicit EasyImu(Settings &settings) :
+        settings{settings} {}
 
     bool init(
         gpio_num_t sck,
@@ -85,20 +90,20 @@ public:
             gyro_sum.z += imu.gyrZ();
         }
 
-        gyro_bias.x = gyro_sum.x / s;
-        gyro_bias.y = gyro_sum.y / s;
-        gyro_bias.z = gyro_sum.z / s;
+        settings.gyro_bias.x = gyro_sum.x / s;
+        settings.gyro_bias.y = gyro_sum.y / s;
+        settings.gyro_bias.z = gyro_sum.z / s;
 
         Logger_debug("End");
-        Logger_debug("Gyro bias: %.4f %.4f %.4f", gyro_bias.x, gyro_bias.y, gyro_bias.z);
+        Logger_debug("Gyro bias: %.4f %.4f %.4f", settings.gyro_bias.x, settings.gyro_bias.y, settings.gyro_bias.z);
     }
 
     void calibrateAccel(int samples) noexcept {
         Logger_info("Calibrating accelerometer with %d samples", samples);
 
         constexpr auto inf = std::numeric_limits<float>::infinity();
-        ela::vec3f accel_max(-inf, -inf, -inf);
-        ela::vec3f accel_min(inf, inf, inf);
+        ela::vec3f accel_max{-inf, -inf, -inf};
+        ela::vec3f accel_min{inf, inf, inf};
 
         constexpr int orientations_total = 6;
         constexpr int orientation_change_timeout_ms = 8000;
@@ -138,18 +143,18 @@ public:
             }
         }
 
-        accel_bias = (accel_min + accel_max) * 0.5f;
+        settings.accel_bias = (accel_min + accel_max) * 0.5f;
 
         // Исправленный расчет масштабных коэффициентов
-        accel_scale.x = 2.0f / (accel_max.x - accel_min.x);
-        accel_scale.y = 2.0f / (accel_max.y - accel_min.y);
-        accel_scale.z = 2.0f / (accel_max.z - accel_min.z);
+        settings.accel_scale.x = 2.0f / (accel_max.x - accel_min.x);
+        settings.accel_scale.y = 2.0f / (accel_max.y - accel_min.y);
+        settings.accel_scale.z = 2.0f / (accel_max.z - accel_min.z);
 
         Logger_info("complete");
         Logger_debug("Accel bias: { %+.4ff, %+.4ff, %+.4ff }",
-                     accel_bias.x, accel_bias.y, accel_bias.z);
+                     settings.accel_bias.x, settings.accel_bias.y, settings.accel_bias.z);
         Logger_debug("Accel scale: { %+.4ff, %+.4ff, %+.4ff }",
-                     accel_scale.x, accel_scale.y, accel_scale.z);
+                     settings.accel_scale.x, settings.accel_scale.y, settings.accel_scale.z);
     }
 
     /// Система координат NED (North East Down | Вперёд Вправо Вниз)
@@ -212,17 +217,17 @@ public:
 
         const ela::vec3f gyro = gyro_filter.calc(
             {
-                (imu.gyrY() - gyro_bias.y) * deg_to_rad,
-                (imu.gyrX() - gyro_bias.x) * deg_to_rad,
-                (imu.gyrZ() - gyro_bias.z) * deg_to_rad
+                (imu.gyrY() - settings.gyro_bias.y) * deg_to_rad,
+                (imu.gyrX() - settings.gyro_bias.x) * deg_to_rad,
+                (imu.gyrZ() - settings.gyro_bias.z) * deg_to_rad
             }
         );
 
         const ela::vec3f accel = accel_filter.calc(
             {
-                -(imu.accY() - accel_bias.y) * accel_scale.y,
-                -(imu.accX() - accel_bias.x) * accel_scale.x,
-                (imu.accZ() - accel_bias.z) * accel_scale.z
+                -(imu.accY() - settings.accel_bias.y) * settings.accel_scale.y,
+                -(imu.accX() - settings.accel_bias.x) * settings.accel_scale.x,
+                (imu.accZ() - settings.accel_bias.z) * settings.accel_scale.z
             }
         );
 

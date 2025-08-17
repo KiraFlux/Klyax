@@ -1,5 +1,7 @@
 #define Logger_level Logger_level_debug
 
+#include "tools/Storage.hpp"
+
 #include <Arduino.h>
 #include <WiFi.h>
 
@@ -52,26 +54,52 @@ struct DroneControl final {
     inline float yawVelocity() const { return yaw_power * power_to_angular_velocity; }
 };
 
-void led(bool state) {
-    digitalWrite(2, state);
-}
-
 static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
 
-static DroneControl control;
+static DroneControl control{};
 
 static PacketTimeoutManager timeout_manager{200};
 
 static DroneFrameDriver frame_driver{
     .motors={
-        Motor(12),
-        Motor(13),
-        Motor(14),
-        Motor(15),
+        Motor{12},
+        Motor{13},
+        Motor{14},
+        Motor{15},
     }
 };
 
-static EasyImu imu;
+static Storage<EasyImu::Settings> imu_storage{
+    "imu", {
+        .gyro_bias = {},
+        .accel_bias = {-13.6719f, -17.8223f, -2.9297f},
+        .accel_scale = {+0.0010f, +0.0010f, +0.0010f},
+    }
+};
+
+static Storage<PID::Settings> pitch_or_roll_velocity_pid_storage{
+    "pid-v-pr", PID::Settings{
+        .p = 0.05f,
+        .i = 0.01f,
+        .d = 0.0002f,
+        .i_limit = 0.1f,
+        .output_min = -1.0f,
+        .output_max = 1.0f,
+    }
+};
+
+static Storage<PID::Settings> yaw_velocity_pid_storage{
+    "pid-v-y", PID::Settings{
+        .p = 0.03f,
+        .i = 0.005f,
+        .d = 0.0002f,
+        .i_limit = 0.1f,
+        .output_min = -1.0f,
+        .output_max = 1.0f,
+    }
+};
+
+static EasyImu imu{imu_storage.settings};
 
 void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
 
@@ -144,73 +172,58 @@ static void fatal() {
 }
 
 void setup() {
+
+    delay(1000);
+
     pinMode(2, OUTPUT);
-    led(HIGH);
+    digitalWrite(2, HIGH);
 
     Serial.begin(115200);
-
     Logger::instance().write_func = [](const char *message, size_t length) {
         Serial.write(message, length);
     };
 
     frame_driver.init();
 
-    if (not imu.init(GPIO_NUM_18, GPIO_NUM_19, GPIO_NUM_23, GPIO_NUM_5)) { fatal(); }
+    if (not imu.init(GPIO_NUM_18, GPIO_NUM_19, GPIO_NUM_23, GPIO_NUM_5)) {
+        fatal();
+    }
+
+    pitch_or_roll_velocity_pid_storage.load();
+    yaw_velocity_pid_storage.load();
+
+    if (not imu_storage.load()) {
+        Logger_warn("Failed to load IMU. Calib IMU..");
+
+        imu.calibrateGyro(5000);
+        imu_storage.save();
+    }
 
     if (not initEspNow()) { fatal(); }
 
-    imu.gyro_bias = {0.3625f, -0.2602f, -1.5634};
-    imu.accel_bias = {-13.6719f, -17.8223f, -2.9297f};
-    imu.accel_scale = {+0.0010f, +0.0010f, +0.0010f};
-
-    imu.calibrateGyro(5000);
-//    imu.calibrateAccel(1000);
-
-    led(LOW);
+    digitalWrite(2, LOW);
     Logger_info("Start!");
 }
 
-void slowDownValue(float &value, float k = 0.8) {
-    if (std::abs(value) > 0.01) {
-        value *= k;
-    } else {
-        value = 0;
-    }
-}
-
 void loop() {
-    static Chronometer chronometer;
-
-    static PID::Settings pitch_or_roll_velocity_pid_settings{
-        .p = 0.05f,
-        .i = 0.01f,
-        .d = 0.0002f,
-        .i_limit = 0.1f,
-    };
-
-    static PID::Settings yaw_velocity_pid_settings{
-        .p = 0.04f,
-        .i = 0.005f,
-        .d = 0.0002f,
-        .i_limit = 0.1f
-    };
+    static Chronometer chronometer{};
 
     static PID pitch_velocity_pid{
-        pitch_or_roll_velocity_pid_settings,
+        pitch_or_roll_velocity_pid_storage.settings,
         0.1f,
     };
 
     static PID roll_velocity_pid{
-        pitch_or_roll_velocity_pid_settings,
+        pitch_or_roll_velocity_pid_storage.settings,
         0.1f
     };
 
     static PID yaw_velocity_pid{
-        yaw_velocity_pid_settings,
-        1.0f,
+        yaw_velocity_pid_storage.settings,
+        0.8f,
     };
 
-    static LowFrequencyFilter<float> yaw_error_filter{0.3f};
+    static LowFrequencyFilter<float> yaw_error_filter{0.4f};
 
     const auto dt = chronometer.calc();
 
@@ -229,15 +242,20 @@ void loop() {
             return;
         }
 
-        const float roll = roll_velocity_pid.calc(control.rollVelocity() - ned.rollVelocity(), dt);
-        const float pitch = pitch_velocity_pid.calc(control.pitchVelocity() - ned.pitchVelocity(), dt);
+        const float roll = roll_velocity_pid.calc(
+            control.rollVelocity() - ned.rollVelocity(),
+            dt
+        );
 
-        const float yaw_error = yaw_error_filter.calc(control.yawVelocity() - ned.yawVelocity());
+        const float pitch = pitch_velocity_pid.calc(
+            control.pitchVelocity() - ned.pitchVelocity(),
+            dt
+        );
 
-        float yaw = yaw_velocity_pid.calc(yaw_error, dt);
-        yaw = constrain(yaw, -1.0f, 1.0f);
-
-//        Logger_debug("yaw Set: %+.2f\tActual: %+.2f\tError: %+.2f\tOutput: %+.2f", control.yawVelocity(), ned.yawVelocity(), yaw_error, yaw);
+        const float yaw = yaw_velocity_pid.calc(
+            yaw_error_filter.calc(control.yawVelocity() - ned.yawVelocity()),
+            dt
+        );
 
         frame_driver.mixin(
             control.thrust,

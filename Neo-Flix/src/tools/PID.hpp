@@ -2,21 +2,23 @@
 
 #include <cmath>
 #include "Arduino.h"
-#include "filters.hpp"
+#include "tools/filters.hpp"
 
 
+/// Реализация PID регулятора с внешней зависимостью настроек
 struct PID {
 
 public:
 
     struct Settings {
         float p, i, d, i_limit;
+        float output_min, output_max;
     };
-
-    const Settings &settings;
 
 private:
 
+
+    const Settings &settings;
     LowFrequencyFilter<float> dx_filter;
     float dx{0};
     float ix{0};
@@ -44,7 +46,8 @@ public:
         }
         last_error = error;
 
-        return settings.p * error + settings.i * ix + settings.d * dx;
+        const float output = settings.p * error + settings.i * ix + settings.d * dx;
+        return constrain(output, settings.output_min, settings.output_max);
     }
 
     void reset() {
@@ -52,4 +55,6 @@ public:
         ix = 0;
         last_error = NAN;
     }
+
 };
+
