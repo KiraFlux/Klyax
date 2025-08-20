@@ -1,12 +1,13 @@
 #define Logger_level Logger_level_debug
 
-#include "tools/Storage.hpp"
+#include "Text-UI.hpp"
 
 #include <Arduino.h>
 #include <WiFi.h>
 
 #include "espnow/Protocol.hpp"
 
+#include "tools/Storage.hpp"
 #include "tools/Logger.hpp"
 #include "tools/time.hpp"
 
@@ -126,30 +127,7 @@ private:
     }
 
     static void onMenuCodePacket(MenuControlCode code) {
-        switch (code) {
-            case Reload:
-                Serial.println("Reload");
-                break;
-            case Click:
-                Serial.println("Click");
-                break;
-            case Left:
-                Serial.println("Left");
-                break;
-            case Right:
-                Serial.println("Right");
-                break;
-            case Up:
-                Serial.println("Up");
-                break;
-            case Down:
-                Serial.println("Down");
-                break;
-
-            default:
-                Serial.println("default");
-                break;
-        }
+        tui::PageManager::instance().addEvent(translateMenuCode(code));
     }
 
     static void onReceive(const espnow::Mac &mac, const void *data, rs::u8 size) {
@@ -172,6 +150,27 @@ private:
             default:
                 Logger_warn("invalid packet size (%d B)", size);
                 return;
+        }
+    }
+
+    static tui::Event translateMenuCode(MenuControlCode code) {
+        switch (code) {
+            case Reload:
+                return tui::Event::Update;
+            case Click:
+                return tui::Event::Click;
+            case Left:
+                return tui::Event::ChangeIncrement;
+            case Right:
+                return tui::Event::ChangeDecrement;
+            case Up:
+                return tui::Event::ElementPrevious;
+            case Down:
+                return tui::Event::ElementNext;
+
+            default:
+                Logger_warn("Invalid code: %d", code);
+                return tui::Event::None;
         }
     }
 
@@ -225,7 +224,73 @@ static void fatal() {
     ESP.restart();
 }
 
+void setupTui() {
+    static tui::Page p1{"Page 1"};
+    static tui::Page p2{"Page 2"};
+    tui::PageManager::instance().bind(p1);
+
+    {
+        static tui::PageSetterButton to_page_2{p2};
+        p1.add(to_page_2);
+
+        static tui::Label label_1{"label 1"};
+        p1.add(label_1);
+
+        static tui::Label label_2{"label 2"};
+        p1.add(label_2);
+
+        static tui::Label label_3{"label 3"};
+        p1.add(label_3);
+
+        static tui::Label label_4{"label 4"};
+        p1.add(label_4);
+
+        static tui::Label label_5{"label 5"};
+        p1.add(label_5);
+
+        static tui::Label label_6{"label 6"};
+        p1.add(label_6);
+
+        static tui::Label label_7{"label 7"};
+        p1.add(label_7);
+
+        static tui::Label label_8{"label 8"};
+        p1.add(label_8);
+
+        static tui::Label label_9{"label 9"};
+        p1.add(label_9);
+
+        static tui::Label label_10{"label 10"};
+        p1.add(label_10);
+    }
+
+    {
+        static tui::PageSetterButton to_page_1{p1};
+        p2.add(to_page_1);
+
+        auto handler = [](const tui::Button &button) {
+            Logger_debug("%s: click", button.label.string);
+        };
+
+        static tui::Button button_1{tui::Label{"button 1"}, handler};
+        p2.add(button_1);
+
+        static tui::Button button_2{tui::Label{"button 2"}, handler};
+        p2.add(button_2);
+
+        static float step = 0.1;
+        static constexpr float step_step = 0.1;
+        static tui::Labeled<tui::SpinBox<float>> spin_box_step{tui::Label{"spin 1"}, tui::SpinBox<float>{step, step_step}};
+        p2.add(spin_box_step);
+
+        static float value = 123.456;
+        static tui::Labeled<tui::SpinBox<float>> spin_box_1{tui::Label{"spin 1"}, tui::SpinBox<float>{value, step}};
+        p2.add(spin_box_1);
+    }
+}
+
 void setup() {
+    setupTui();
     delay(1000);
 
     pinMode(2, OUTPUT);
@@ -256,11 +321,12 @@ void setup() {
 
     digitalWrite(2, LOW);
     Logger_info("Start!");
-} // Function declared 'noreturn' should not return
+}
 
 void loop() {
     static Chronometer chronometer{};
     static auto &esp_now = EspNowClient::instance();
+    static auto &page_manager = tui::PageManager::instance();
 
     static PID pitch_velocity_pid{
         pitch_or_roll_velocity_pid_storage.settings,
@@ -278,6 +344,12 @@ void loop() {
     };
 
     static LowFrequencyFilter<float> yaw_error_filter{0.4f};
+
+    if (page_manager.pollEvents()) {
+        const auto slice = page_manager.render();
+        Logger_debug("Redraw page: %d chars", slice.len);
+        espnow::Protocol::send(esp_now.target, slice.data, slice.len);
+    }
 
     const auto dt = chronometer.calc();
 
@@ -331,4 +403,6 @@ void loop() {
 
         frame_driver.disable();
     }
+
+    delay(1);
 }
