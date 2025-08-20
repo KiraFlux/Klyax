@@ -19,7 +19,7 @@ struct DroneControl final {
 
     /// Преобразование воздействия пульта в угловую скорость
     /// Радиан / секунду
-    static constexpr float power_to_angular_velocity = 3.0;
+    static constexpr float power_to_angular_velocity = 3.0f;
 
     /// ROLL
     /// [-1.0 .. 1.0]
@@ -54,11 +54,129 @@ struct DroneControl final {
     inline float yawVelocity() const { return yaw_power * power_to_angular_velocity; }
 };
 
-static constexpr espnow::Mac control_mac = {0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
-
 static DroneControl control{};
 
-static PacketTimeoutManager timeout_manager{200};
+struct EspNowClient final {
+
+    struct DualJoyControlPacket {
+        float left_x;
+        float left_y;
+        float right_x;
+        float right_y;
+
+        bool mode_toggle;
+    };
+
+    enum MenuControlCode : uint8_t {
+        Reload = 0x10,
+        Click = 0x20,
+        Left = 0x30,
+        Right = 0x31,
+        Up = 0x40,
+        Down = 0x41
+    };
+
+    espnow::Mac target{0x78, 0x1c, 0x3c, 0xa4, 0x96, 0xdc};
+    PacketTimeoutManager timeout_manager{200};
+
+    bool init() const {
+        Logger_info("init");
+
+        const bool wifi_ok = WiFiClass::mode(WIFI_MODE_STA);
+        if (not wifi_ok) {
+            return false;
+        }
+
+        const auto init_result = espnow::Protocol::init();
+        if (init_result.fail()) {
+            Logger_error(rs::toString(init_result.error));
+            return false;
+        }
+
+        const auto peer_result = espnow::Peer::add(target);
+        if (peer_result.fail()) {
+            Logger_error(rs::toString(peer_result.error));
+            return false;
+        }
+
+        const auto handler_result = espnow::Protocol::instance().setReceiveHandler(EspNowClient::onReceive);
+        if (handler_result.fail()) {
+            Logger_error(rs::toString(handler_result.error));
+            return false;
+        }
+
+        Logger_debug("success");
+        return true;
+    }
+
+    static EspNowClient &instance() {
+        static EspNowClient instance{};
+        return instance;
+    }
+
+private:
+
+    void onDualJoyControlPacket(const DualJoyControlPacket &packet) {
+        timeout_manager.update();
+        control.yaw_power = packet.left_x;
+        control.thrust = packet.left_y;
+        control.roll_power = packet.right_x;
+        control.pitch_power = -packet.right_y;
+        control.armed = packet.mode_toggle;
+    }
+
+    static void onMenuCodePacket(MenuControlCode code) {
+        switch (code) {
+            case Reload:
+                Serial.println("Reload");
+                break;
+            case Click:
+                Serial.println("Click");
+                break;
+            case Left:
+                Serial.println("Left");
+                break;
+            case Right:
+                Serial.println("Right");
+                break;
+            case Up:
+                Serial.println("Up");
+                break;
+            case Down:
+                Serial.println("Down");
+                break;
+
+            default:
+                Serial.println("default");
+                break;
+        }
+    }
+
+    static void onReceive(const espnow::Mac &mac, const void *data, rs::u8 size) {
+        auto &self = instance();
+
+        if (mac != self.target) {
+            Logger_warn("got message from unknown device");
+            return;
+        }
+
+        switch (size) {
+            case sizeof(DualJoyControlPacket):
+                self.onDualJoyControlPacket(*static_cast<const DualJoyControlPacket *>(data));
+                return;
+
+            case sizeof(MenuControlCode):
+                EspNowClient::onMenuCodePacket(*static_cast<const MenuControlCode *>(data));
+                return;
+
+            default:
+                Logger_warn("invalid packet size (%d B)", size);
+                return;
+        }
+    }
+
+    EspNowClient() = default;
+};
 
 static DroneFrameDriver frame_driver{
     .motors={
@@ -101,70 +219,6 @@ static Storage<PID::Settings> yaw_velocity_pid_storage{
 
 static EasyImu imu{imu_storage.settings};
 
-void onEspNowMessage(const espnow::Mac &mac, const void *data, rs::u8 size) {
-
-    struct DualJotControlPacket {
-        float left_x;
-        float left_y;
-        float right_x;
-        float right_y;
-
-        bool mode_toggle;
-        bool mode_hold;
-        bool waiting_for_remote_menu;
-    };
-
-    if (mac != control_mac) {
-        Logger_warn("got message from unknown device");
-        return;
-    }
-
-    if (size != sizeof(DualJotControlPacket)) {
-        Logger_warn("invalid packet size");
-        return;
-    }
-
-    timeout_manager.update();
-
-    const auto &DJC = *reinterpret_cast<const DualJotControlPacket *>(data);
-
-    control.yaw_power = DJC.left_x;
-    control.thrust = DJC.left_y;
-    control.roll_power = DJC.right_x;
-    control.pitch_power = -DJC.right_y;
-    control.armed = DJC.mode_toggle;
-}
-
-static bool initEspNow() {
-    Logger_info("init");
-
-    const bool wifi_ok = WiFiClass::mode(WIFI_MODE_STA);
-    if (not wifi_ok) {
-        return false;
-    }
-
-    const auto init_result = espnow::Protocol::init();
-    if (init_result.fail()) {
-        Logger_error(rs::toString(init_result.error));
-        return false;
-    }
-
-    const auto peer_result = espnow::Peer::add(control_mac);
-    if (peer_result.fail()) {
-        Logger_error(rs::toString(peer_result.error));
-        return false;
-    }
-
-    const auto handler_result = espnow::Protocol::instance().setReceiveHandler(onEspNowMessage);
-    if (handler_result.fail()) {
-        Logger_error(rs::toString(handler_result.error));
-        return false;
-    }
-
-    Logger_debug("success");
-    return true;
-}
-
 static void fatal() {
     Logger_fatal("Fatal Error. Reboot in 5s");
     delay(5000);
@@ -172,7 +226,6 @@ static void fatal() {
 }
 
 void setup() {
-
     delay(1000);
 
     pinMode(2, OUTPUT);
@@ -199,14 +252,15 @@ void setup() {
         imu_storage.save();
     }
 
-    if (not initEspNow()) { fatal(); }
+    if (not EspNowClient::instance().init()) { fatal(); }
 
     digitalWrite(2, LOW);
     Logger_info("Start!");
-}
+} // Function declared 'noreturn' should not return
 
 void loop() {
     static Chronometer chronometer{};
+    static auto &esp_now = EspNowClient::instance();
 
     static PID pitch_velocity_pid{
         pitch_or_roll_velocity_pid_storage.settings,
@@ -227,7 +281,7 @@ void loop() {
 
     const auto dt = chronometer.calc();
 
-    if (timeout_manager.expired()) {
+    if (esp_now.timeout_manager.expired()) {
         control.armed = false;
     }
 
