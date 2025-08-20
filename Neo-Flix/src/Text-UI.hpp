@@ -291,13 +291,19 @@ private:
     std::queue<Event> events{};
     TextStream stream{};
     Page *active_page{nullptr};
+    Page *previous_page{nullptr};
 
 public:
 
     int rows{8};
 
     void bind(Page &page) {
+        previous_page = active_page;
         active_page = &page;
+    }
+
+    void back() {
+        std::swap(previous_page, active_page);
     }
 
     TextStream::Slice render() {

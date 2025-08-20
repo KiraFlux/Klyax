@@ -118,7 +118,7 @@ private:
         control.yaw_power = packet.left_x;
         control.thrust = packet.left_y;
         control.roll_power = packet.right_x;
-        control.pitch_power = -packet.right_y;
+        control.pitch_power = packet.right_y;
         control.armed = packet.mode_toggle;
     }
 
@@ -217,10 +217,11 @@ static void fatal() {
 }
 
 void setupTui() {
-    static PidSettingsPage pitch_or_roll_vel_page{pitch_or_roll_velocity_pid_storage};
-    static PidSettingsPage yaw_vel_page{yaw_velocity_pid_storage};
+    static nfui::PidSettingsPage pitch_or_roll_vel_page{pitch_or_roll_velocity_pid_storage};
+    static nfui::PidSettingsPage yaw_vel_page{yaw_velocity_pid_storage};
+    static nfui::ImuPage imu_page{imu_storage, imu};
 
-    tui::PageManager::instance().bind(MainPage::instance());
+    tui::PageManager::instance().bind(nfui::MainPage::instance());
 }
 
 void setup() {
@@ -243,13 +244,7 @@ void setup() {
 
     pitch_or_roll_velocity_pid_storage.load();
     yaw_velocity_pid_storage.load();
-
-    if (not imu_storage.load()) {
-        Logger_warn("Failed to load IMU. Calib IMU..");
-
-        imu.calibrateGyro(5000);
-        imu_storage.save();
-    }
+    imu_storage.load();
 
     if (not EspNowClient::instance().init()) { fatal(); }
 
@@ -279,9 +274,17 @@ void loop() {
 
     static LowFrequencyFilter<float> yaw_error_filter{0.4f};
 
+    delay(1);
+
+    if (imu.isCalibratingAccel()) {
+        const bool state_changed = imu.updateAccelCalib();
+        if (state_changed) {
+            page_manager.addEvent(tui::Event::Update);
+        }
+    }
+
     if (page_manager.pollEvents()) {
         const auto slice = page_manager.render();
-//        Logger_debug("Redraw page: %d chars", slice.len);
         espnow::Protocol::send(esp_now.target, slice.data, slice.len);
     }
 
@@ -293,6 +296,23 @@ void loop() {
 
     if (control.armed) {
         const auto ned = imu.read(dt);
+
+        static uint32_t last_debug_time = 0;
+        if (millis() - last_debug_time > 100) {
+            last_debug_time = millis();
+
+            Logger_debug("Accel: X:%+.2f Y:%+.2f Z:%+.2f\t"
+                         "Angles: R:%+.1f P:%+.1f Y:%+.1f",
+                         ned.linear_acceleration.x,
+                         ned.linear_acceleration.y,
+                         ned.linear_acceleration.z,
+                         ned.roll() * RAD_TO_DEG,
+                         ned.pitch() * RAD_TO_DEG,
+                         ned.yaw() * RAD_TO_DEG
+            );
+        }
+
+        return;
 
         constexpr float critical_angle = 70 * DEG_TO_RAD;
 
@@ -338,5 +358,4 @@ void loop() {
         frame_driver.disable();
     }
 
-    delay(1);
 }

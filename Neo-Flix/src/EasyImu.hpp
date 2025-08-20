@@ -20,17 +20,70 @@ public:
         ela::vec3f accel_scale;
     };
 
+    struct AccelCalibrator {
+        static constexpr auto samples_per_orientation = 5000;
+        static constexpr auto orientations_total = 6;
+
+        ela::vec3f accel_min{};
+        ela::vec3f accel_max{};
+        int samples_collected{0};
+        uint8_t current_orientation{0};
+        bool active{false};
+        bool paused{false}; // Флаг паузы для возможности перевернуть дрон
+
+        void onStart() {
+            constexpr auto inf = std::numeric_limits<float>::infinity();
+            accel_max = {-inf, -inf, -inf};
+            accel_min = {inf, inf, inf};
+            samples_collected = 0;
+            current_orientation = 0;
+            active = true;
+            paused = false;
+        }
+
+        void onSample(float x, float y, float z) {
+            accel_min.x = std::min(accel_min.x, x);
+            accel_min.y = std::min(accel_min.y, y);
+            accel_min.z = std::min(accel_min.z, z);
+
+            accel_max.x = std::max(accel_max.x, x);
+            accel_max.y = std::max(accel_max.y, y);
+            accel_max.z = std::max(accel_max.z, z);
+
+            samples_collected += 1;
+        }
+
+        void onOrientationCollected() {
+            samples_collected = 0;
+            current_orientation += 1;
+            paused = true;
+        }
+
+        void onEnd() {
+            active = false;
+            paused = false;
+        }
+
+        void apply(Settings &s) const {
+            s.accel_bias = (accel_min + accel_max) * 0.5f;
+            s.accel_scale.x = 2.0f / (accel_max.x - accel_min.x);
+            s.accel_scale.y = 2.0f / (accel_max.y - accel_min.y);
+            s.accel_scale.z = 2.0f / (accel_max.z - accel_min.z);
+        }
+    };
+
 private:
 
     Settings &settings;
 
+    ICM_20948_SPI imu{};
     LowFrequencyFilter<ela::vec3f> accel_filter{0.2f};
     LowFrequencyFilter<ela::vec3f> gyro_filter{0.35};
     ComplementaryFilter<float> roll_filter{0.98f};
     ComplementaryFilter<float> pitch_filter{0.98f};
     float yaw{0.0f};
 
-    ICM_20948_SPI imu;
+    AccelCalibrator accel_calibrator{};
 
 public:
 
@@ -98,63 +151,42 @@ public:
         Logger_debug("Gyro bias: %.4f %.4f %.4f", settings.gyro_bias.x, settings.gyro_bias.y, settings.gyro_bias.z);
     }
 
-    void calibrateAccel(int samples) noexcept {
-        Logger_info("Calibrating accelerometer with %d samples", samples);
+    inline void startAccelCalib() { accel_calibrator.onStart(); }
 
-        constexpr auto inf = std::numeric_limits<float>::infinity();
-        ela::vec3f accel_max{-inf, -inf, -inf};
-        ela::vec3f accel_min{inf, inf, inf};
+    inline uint8_t getAccelCalibOrientation() const { return accel_calibrator.current_orientation; }
 
-        constexpr int orientations_total = 6;
-        constexpr int orientation_change_timeout_ms = 8000;
+    inline bool isCalibratorActive() const { return accel_calibrator.active; }
 
-        constexpr const char *orientation_names[orientations_total] = {
-            "level",
-            "upside down",
-            "nose up",
-            "nose down",
-            "left side",
-            "right side"
-        };
+    inline bool isCalibratingAccel() const { return accel_calibrator.active and not accel_calibrator.paused; }
 
-        for (int calib_orientation = 0; calib_orientation < orientations_total; calib_orientation += 1) {
-            Logger_info("%d/%d place %s", calib_orientation + 1, orientations_total, orientation_names[calib_orientation]);
-            delay(orientation_change_timeout_ms);
+    void resumeAccelCalib() {
+        accel_calibrator.paused = false;
+    }
 
-            Logger_info("Start");
+    bool updateAccelCalib() {
+        if (not imu.dataReady()) { return false; }
 
-            for (int i = 0; i < samples; i++) {
-                if (imu.dataReady()) {
-                    imu.getAGMT();
+        imu.getAGMT();
+        accel_calibrator.onSample(imu.accX(), imu.accY(), imu.accZ());
 
-                    const float ax = imu.accX();
-                    const float ay = imu.accY();
-                    const float az = imu.accZ();
+        if (accel_calibrator.samples_collected < AccelCalibrator::samples_per_orientation) { return false; }
 
-                    accel_min.x = std::min(accel_min.x, ax);
-                    accel_min.y = std::min(accel_min.y, ay);
-                    accel_min.z = std::min(accel_min.z, az);
+        accel_calibrator.onOrientationCollected();
 
-                    accel_max.x = std::max(accel_max.x, ax);
-                    accel_max.y = std::max(accel_max.y, ay);
-                    accel_max.z = std::max(accel_max.z, az);
-                }
-                delay(10);
-            }
-        }
+        if (accel_calibrator.current_orientation < AccelCalibrator::orientations_total) { return true; }
 
-        settings.accel_bias = (accel_min + accel_max) * 0.5f;
+        accel_calibrator.apply(settings);
+        accel_calibrator.onEnd();
 
-        // Исправленный расчет масштабных коэффициентов
-        settings.accel_scale.x = 2.0f / (accel_max.x - accel_min.x);
-        settings.accel_scale.y = 2.0f / (accel_max.y - accel_min.y);
-        settings.accel_scale.z = 2.0f / (accel_max.z - accel_min.z);
+        Logger_debug(
+            "End\n"
+            "Bias: %f %f %f\n"
+            "Scale: %f %f %f",
+            settings.accel_bias.x, settings.accel_bias.y, settings.accel_bias.z,
+            settings.accel_scale.x, settings.accel_scale.y, settings.accel_scale.z
+        );
 
-        Logger_info("complete");
-        Logger_debug("Accel bias: { %+.4ff, %+.4ff, %+.4ff }",
-                     settings.accel_bias.x, settings.accel_bias.y, settings.accel_bias.z);
-        Logger_debug("Accel scale: { %+.4ff, %+.4ff, %+.4ff }",
-                     settings.accel_scale.x, settings.accel_scale.y, settings.accel_scale.z);
+        return true;
     }
 
     /// Система координат NED (North East Down | Вперёд Вправо Вниз)
@@ -215,25 +247,29 @@ public:
 
         imu.getAGMT();
 
+        // Правильное преобразование гироскопа (в радианах/секунду)
         const ela::vec3f gyro = gyro_filter.calc(
             {
-                (imu.gyrY() - settings.gyro_bias.y) * deg_to_rad,
-                (imu.gyrX() - settings.gyro_bias.x) * deg_to_rad,
-                (imu.gyrZ() - settings.gyro_bias.z) * deg_to_rad
+                (imu.gyrY() - settings.gyro_bias.y) * deg_to_rad,  // Ось Y датчика → X дрона (крен)
+                (imu.gyrX() - settings.gyro_bias.x) * deg_to_rad,  // Ось X датчика → Y дрона (тангаж)
+                -(imu.gyrZ() - settings.gyro_bias.z) * deg_to_rad  // Ось Z датчика → -Z дрона (инвертировано)
             }
         );
 
+        // Правильное преобразование акселерометра (в g)
         const ela::vec3f accel = accel_filter.calc(
             {
-                -(imu.accY() - settings.accel_bias.y) * settings.accel_scale.y,
-                -(imu.accX() - settings.accel_bias.x) * settings.accel_scale.x,
-                (imu.accZ() - settings.accel_bias.z) * settings.accel_scale.z
+                (imu.accY() - settings.accel_bias.y) * settings.accel_scale.y,   // Ось Y датчика → X дрона
+                (imu.accX() - settings.accel_bias.x) * settings.accel_scale.x,   // Ось X датчика → Y дрона
+                -(imu.accZ() - settings.accel_bias.z) * settings.accel_scale.z   // Ось Z датчика → -Z дрона
             }
         );
 
+        // Правильный расчет углов из акселерометра
         const float roll_acc = atan2f(accel.y, accel.z);
-        const float pitch_acc = -atan2f(accel.x, accel.z);
+        const float pitch_acc = atan2f(-accel.x, sqrtf(accel.y * accel.y + accel.z * accel.z));
 
+        // Интегрирование рыскания по гироскопу
         yaw = yaw + gyro.z * dt;
 
         return NedCoordinateSystem{
@@ -246,7 +282,6 @@ public:
             .linear_acceleration = accel
         };
     }
-
 private:
 
     inline static float normalizeAngle(float angle) noexcept {
@@ -255,3 +290,5 @@ private:
     }
 
 };
+
+
