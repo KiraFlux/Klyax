@@ -1,6 +1,6 @@
 #define Logger_level Logger_level_debug
 
-#include "Text-UI.hpp"
+#include "Neo-Flix-UI.hpp"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -57,7 +57,8 @@ struct DroneControl final {
 
 static DroneControl control{};
 
-struct EspNowClient final {
+struct EspNowClient final : Singleton<EspNowClient> {
+    friend struct Singleton<EspNowClient>;
 
     struct DualJoyControlPacket {
         float left_x;
@@ -108,11 +109,6 @@ struct EspNowClient final {
 
         Logger_debug("success");
         return true;
-    }
-
-    static EspNowClient &instance() {
-        static EspNowClient instance{};
-        return instance;
     }
 
 private:
@@ -173,8 +169,6 @@ private:
                 return tui::Event::None;
         }
     }
-
-    EspNowClient() = default;
 };
 
 static DroneFrameDriver frame_driver{
@@ -200,8 +194,7 @@ static Storage<PID::Settings> pitch_or_roll_velocity_pid_storage{
         .i = 0.01f,
         .d = 0.0002f,
         .i_limit = 0.1f,
-        .output_min = -1.0f,
-        .output_max = 1.0f,
+        .output_abs_max = 1.0f,
     }
 };
 
@@ -211,8 +204,7 @@ static Storage<PID::Settings> yaw_velocity_pid_storage{
         .i = 0.005f,
         .d = 0.0002f,
         .i_limit = 0.1f,
-        .output_min = -1.0f,
-        .output_max = 1.0f,
+        .output_abs_max = 1.0f,
     }
 };
 
@@ -225,68 +217,10 @@ static void fatal() {
 }
 
 void setupTui() {
-    static tui::Page p1{"Page 1"};
-    static tui::Page p2{"Page 2"};
-    tui::PageManager::instance().bind(p1);
+    static PidSettingsPage pitch_or_roll_vel_page{pitch_or_roll_velocity_pid_storage};
+    static PidSettingsPage yaw_vel_page{yaw_velocity_pid_storage};
 
-    {
-        static tui::PageSetterButton to_page_2{p2};
-        p1.add(to_page_2);
-
-        static tui::Label label_1{"label 1"};
-        p1.add(label_1);
-
-        static tui::Label label_2{"label 2"};
-        p1.add(label_2);
-
-        static tui::Label label_3{"label 3"};
-        p1.add(label_3);
-
-        static tui::Label label_4{"label 4"};
-        p1.add(label_4);
-
-        static tui::Label label_5{"label 5"};
-        p1.add(label_5);
-
-        static tui::Label label_6{"label 6"};
-        p1.add(label_6);
-
-        static tui::Label label_7{"label 7"};
-        p1.add(label_7);
-
-        static tui::Label label_8{"label 8"};
-        p1.add(label_8);
-
-        static tui::Label label_9{"label 9"};
-        p1.add(label_9);
-
-        static tui::Label label_10{"label 10"};
-        p1.add(label_10);
-    }
-
-    {
-        static tui::PageSetterButton to_page_1{p1};
-        p2.add(to_page_1);
-
-        auto handler = [](const tui::Button &button) {
-            Logger_debug("%s: click", button.label.string);
-        };
-
-        static tui::Button button_1{tui::Label{"button 1"}, handler};
-        p2.add(button_1);
-
-        static tui::Button button_2{tui::Label{"button 2"}, handler};
-        p2.add(button_2);
-
-        static float step = 0.1;
-        static constexpr float step_step = 0.1;
-        static tui::Labeled<tui::SpinBox<float>> spin_box_step{tui::Label{"spin 1"}, tui::SpinBox<float>{step, step_step}};
-        p2.add(spin_box_step);
-
-        static float value = 123.456;
-        static tui::Labeled<tui::SpinBox<float>> spin_box_1{tui::Label{"spin 1"}, tui::SpinBox<float>{value, step}};
-        p2.add(spin_box_1);
-    }
+    tui::PageManager::instance().bind(MainPage::instance());
 }
 
 void setup() {
@@ -347,7 +281,7 @@ void loop() {
 
     if (page_manager.pollEvents()) {
         const auto slice = page_manager.render();
-        Logger_debug("Redraw page: %d chars", slice.len);
+//        Logger_debug("Redraw page: %d chars", slice.len);
         espnow::Protocol::send(esp_now.target, slice.data, slice.len);
     }
 

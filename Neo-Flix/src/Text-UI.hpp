@@ -8,6 +8,8 @@
 #include <queue>
 #include <functional>
 
+#include "tools/Singleton.hpp"
+
 /// Text User Interface
 namespace tui {
 
@@ -82,26 +84,15 @@ struct Widget {
     }
 };
 
-struct Label final : Widget {
-    const char *string;
-
-    explicit Label(const char string[]) noexcept:
-        string{string} {}
-
-    bool onEvent(Event event) override { return false; }
-
-    void doRender(TextStream &stream) const override { stream.print(string); }
-};
-
 struct Button final : Widget {
 
     using ClickHandler = std::function<void(const Button &)>;
 
-    Label label;
+    const char *label;
     ClickHandler on_click;
 
-    explicit Button(Label text, ClickHandler on_click = nullptr) noexcept:
-        on_click(std::move(on_click)), label(std::move(text)) {}
+    explicit Button(const char *label, ClickHandler on_click = nullptr) noexcept:
+        label{label}, on_click{std::move(on_click)} {}
 
     bool onEvent(Event event) override {
         if (event == Event::Click and on_click) {
@@ -112,7 +103,7 @@ struct Button final : Widget {
 
     void doRender(TextStream &stream) const override {
         stream.write('[');
-        label.doRender(stream);
+        stream.print(label);
         stream.write(']');
     }
 };
@@ -128,20 +119,40 @@ template<typename T> struct Display final : Widget {
 template<typename T> struct SpinBox final : Widget {
     static_assert(std::is_arithmetic<T>::value, "T must be arithmetic");
 
+    using Scalar = T;
+
+    enum class Mode {
+        Arithmetic,
+        ArithmeticPositiveOnly,
+        Geometric
+    };
+
     T &value;
     const T &step;
+    const Mode mode;
 
-    explicit SpinBox(T &value, const T &step) noexcept:
-        value{value}, step{step} {}
+    explicit SpinBox(T &value, const T &step, Mode mode = Mode::Arithmetic) noexcept:
+        value{value}, step{step}, mode{mode} {}
 
     bool onEvent(Event event) override {
         if (event == Event::ChangeIncrement) {
-            value += step;
+            if (mode == Mode::Geometric) {
+                value *= step;
+            } else {
+                value += step;
+            }
             return true;
         }
 
         if (event == Event::ChangeDecrement) {
-            value -= step;
+            if (mode == Mode::Geometric) {
+                value /= step;
+            } else {
+                value -= step;
+                if (mode == Mode::ArithmeticPositiveOnly && value < 0) {
+                    value = 0;
+                }
+            }
             return true;
         }
 
@@ -150,9 +161,12 @@ template<typename T> struct SpinBox final : Widget {
 
     void doRender(TextStream &stream) const override {
         stream.write('<');
-        stream.write(' ');
-        stream.print(value);
-        stream.write(' ');
+
+        if (std::is_floating_point<T>::value) {
+            stream.print(static_cast<float>(value), 4);
+        } else {
+            stream.print(value);
+        }
         stream.write('>');
     }
 };
@@ -160,18 +174,20 @@ template<typename T> struct SpinBox final : Widget {
 template<typename W> struct Labeled final : Widget {
     static_assert((std::is_base_of<Widget, W>::value), "W must be a Widget Subclass");
 
-    Label label;
+    using Content = W;
+
+    const char *label;
     W content;
 
-    explicit Labeled(Label label, W content) noexcept:
-        label{std::move(label)}, content{std::move(content)} {}
+    explicit Labeled(const char *label, W content) noexcept:
+        label{label}, content{std::move(content)} {}
 
     bool onEvent(Event event) override {
         return content.onEvent(event);
     }
 
     void doRender(TextStream &stream) const override {
-        label.doRender(stream);
+        stream.print(label);
         stream.write(0x82);
         stream.write(':');
         content.doRender(stream);
@@ -179,13 +195,28 @@ template<typename W> struct Labeled final : Widget {
 
 };
 
-struct Page final {
+struct Page;
+
+struct PageSetterButton final : Widget {
+    Page &target;
+
+    explicit PageSetterButton(Page &target) :
+        target{target} {}
+
+    bool onEvent(Event event) override;
+
+    void doRender(TextStream &stream) const override;
+};
+
+struct Page {
 
     const char *title;
+
 private:
 
     std::vector<Widget *> widgets{};
     int cursor{0};
+    PageSetterButton to_this{*this};
 
 public:
 
@@ -193,6 +224,11 @@ public:
         title{title} {}
 
     void add(Widget &widget) { widgets.push_back(&widget); }
+
+    void link(Page &other) {
+        this->add(other.to_this);
+        other.add(this->to_this);
+    }
 
     void render(TextStream &stream, int rows) {
         stream.print(title);
@@ -247,7 +283,8 @@ private:
     inline int cursorPositionMax() const { return totalWidgets() - 1; }
 };
 
-struct PageManager final {
+struct PageManager final : Singleton<PageManager> {
+    friend struct Singleton<PageManager>;
 
 private:
 
@@ -294,39 +331,20 @@ public:
         events.pop();
         return render_required;
     }
-
-public:
-
-    static PageManager &instance() {
-        static PageManager instance;
-        return instance;
-    }
-
-    PageManager(const PageManager &) = delete;
-
-private:
-    PageManager() = default;
 };
 
-struct PageSetterButton final : Widget {
-    Page &target;
+void PageSetterButton::doRender(TextStream &stream) const {
+    stream.write('>');
+    stream.write(' ');
+    stream.print(target.title);
+}
 
-    explicit PageSetterButton(Page &target) :
-        target{target} {}
-
-    bool onEvent(Event event) override {
-        if (event == Event::Click) {
-            PageManager::instance().bind(target);
-            return true;
-        }
-        return false;
+bool PageSetterButton::onEvent(Event event) {
+    if (event == Event::Click) {
+        PageManager::instance().bind(target);
+        return true;
     }
-
-    void doRender(TextStream &stream) const override {
-        stream.write('>');
-        stream.write(' ');
-        stream.print(target.title);
-    }
-};
+    return false;
+}
 
 }

@@ -12,7 +12,7 @@ public:
 
     struct Settings {
         float p, i, d, i_limit;
-        float output_min, output_max;
+        float output_abs_max;
     };
 
 private:
@@ -47,7 +47,7 @@ public:
         last_error = error;
 
         const float output = settings.p * error + settings.i * ix + settings.d * dx;
-        return constrain(output, settings.output_min, settings.output_max);
+        return constrain(output, -settings.output_abs_max, settings.output_abs_max);
     }
 
     void reset() {
