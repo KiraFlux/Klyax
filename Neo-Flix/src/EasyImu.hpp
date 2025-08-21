@@ -269,7 +269,7 @@ public:
         const ela::vec3f accel = accel_filter.calc(compMul(transformToFLU(imu.accX(), imu.accY(), imu.accZ()) - settings.accel_bias, settings.accel_scale));
 
         const float accel_roll = std::atan2(-accel.y, -accel.z);
-        const float accel_pitch = std::atan2(accel.x, std::hypot(accel.y, accel.z)); // даёт positive при nose down;
+        const float accel_pitch = std::atan2(accel.x, std::hypot(accel.y, accel.z));
         yaw += gyro.z * dt;
 
         return FLU{

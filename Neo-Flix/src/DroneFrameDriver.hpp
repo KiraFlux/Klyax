@@ -7,14 +7,26 @@
 struct DroneFrameDriver {
 
     enum MotorIndex {
-        /// M0 - Задний левый
+        /// M0
+        /// Задний левый
+        /// Против часовой
         BackLeft,
-        /// M1 - Задний правый
+
+        /// M1
+        /// Задний правый
+        /// По часовой
         BackRight,
-        /// M2 - Передний левый
+
+        /// M2
+        /// Передний правый
+        /// Против часовой
         FrontRight,
-        /// M3 - Передний правый
+
+        /// M3
+        /// Передний левый
+        /// По часовой
         FrontLeft,
+
         /// Общее кол-во
         TotalCount
     };
@@ -39,10 +51,10 @@ struct DroneFrameDriver {
         float pitch,
         float yaw
     ) const {
-        motors[FrontLeft].write(thrust + roll - pitch + yaw);
-        motors[FrontRight].write(thrust - roll - pitch - yaw);
-        motors[BackLeft].write(thrust + roll + pitch - yaw);
-        motors[BackRight].write(thrust - roll + pitch + yaw);
+        motors[FrontLeft].write(thrust + roll - pitch - yaw);
+        motors[FrontRight].write(thrust - roll - pitch + yaw);
+        motors[BackLeft].write(thrust + roll + pitch + yaw);
+        motors[BackRight].write(thrust - roll + pitch - yaw);
     }
 
     void disable() const {

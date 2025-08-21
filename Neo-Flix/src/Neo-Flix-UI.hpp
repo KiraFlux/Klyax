@@ -47,7 +47,7 @@ struct PidSettingsPage final : tui::Page {
     explicit PidSettingsPage(Storage<PID::Settings> &pid_settings_storage) noexcept:
         Page{pid_settings_storage.key},
         save_button{
-            "save", [&pid_settings_storage](const tui::Button &) {
+            "save", [&pid_settings_storage](tui::Button &) {
                 pid_settings_storage.save();
             }
         },
@@ -126,13 +126,13 @@ struct ImuPage final : tui::Page {
     explicit ImuPage(Storage<EasyImu::Settings> &imu_storage, EasyImu &imu) :
         Page{imu_storage.key},
         save{
-            "Save", [&imu_storage](const tui::Button &) {
+            "Save", [&imu_storage](tui::Button &) {
                 imu_storage.save();
             }
         },
         calib_accel{imu},
         calib_gyro{
-            "Calib Gyro", [&imu](const tui::Button &) {
+            "Calib Gyro", [&imu](tui::Button &) {
                 imu.calibrateGyro(5000);
             }
         },

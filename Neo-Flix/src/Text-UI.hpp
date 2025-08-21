@@ -86,7 +86,7 @@ struct Widget {
 
 struct Button final : Widget {
 
-    using ClickHandler = std::function<void(const Button &)>;
+    using ClickHandler = std::function<void(Button &)>;
 
     const char *label;
     ClickHandler on_click;

@@ -115,10 +115,13 @@ private:
 
     void onDualJoyControlPacket(const DualJoyControlPacket &packet) {
         timeout_manager.update();
+
         control.yaw_power = packet.left_x;
         control.thrust = packet.left_y;
+
         control.roll_power = packet.right_x;
         control.pitch_power = packet.right_y;
+
         control.armed = packet.mode_toggle;
     }
 
@@ -188,23 +191,137 @@ static Storage<EasyImu::Settings> imu_storage{
     }
 };
 
-static Storage<PID::Settings> pitch_or_roll_velocity_pid_storage{
-    "pid-v-pr", PID::Settings{
-        .p = 0.05f,
-        .i = 0.01f,
-        .d = 0.0002f,
-        .i_limit = 0.1f,
-        .output_abs_max = 1.0f,
+struct Behavior {
+    virtual void interpret(
+        const DroneControl &c,
+        float dt,
+        const EasyImu::FLU &flu
+    ) = 0;
+
+    virtual void onDisarm() = 0;
+};
+
+struct BehaviorManager final : Singleton<BehaviorManager> {
+    friend struct Singleton<BehaviorManager>;
+
+private:
+
+    Behavior *active_behavior{nullptr};
+
+public:
+
+    void bind(Behavior &behavior) {
+        active_behavior = &behavior;
+    }
+
+    bool isActive(const Behavior &behavior) const {
+        return &behavior == active_behavior;
+    }
+
+    void interpret(
+        const DroneControl &c,
+        float dt,
+        const EasyImu::FLU &flu
+    ) const {
+        if (active_behavior == nullptr) { return; }
+        active_behavior->interpret(c, dt, flu);
+    }
+
+    void onDisarm() const {
+        if (active_behavior == nullptr) { return; }
+        active_behavior->onDisarm();
     }
 };
 
-static Storage<PID::Settings> yaw_velocity_pid_storage{
-    "pid-v-y", PID::Settings{
-        .p = 0.03f,
-        .i = 0.005f,
-        .d = 0.0002f,
-        .i_limit = 0.1f,
-        .output_abs_max = 1.0f,
+struct ManualModeBehavior final : Behavior, Singleton<ManualModeBehavior> {
+    friend struct Singleton<ManualModeBehavior>;
+
+    void interpret(const DroneControl &c, float dt, const EasyImu::FLU &flu) override {
+        frame_driver.mixin(
+            c.thrust,
+            c.roll_power,
+            c.pitch_power,
+            c.yaw_power
+        );
+    }
+
+    void onDisarm() override {}
+};
+
+struct AcrobaticModeBehavior final : Behavior, Singleton<AcrobaticModeBehavior> {
+    friend struct Singleton<AcrobaticModeBehavior>;
+
+    Storage<PID::Settings> pitch_or_roll_velocity_pid_storage{
+        "pid-v-pr", PID::Settings{
+            .p = 0.05f,
+            .i = 0.01f,
+            .d = 0.0002f,
+            .i_limit = 0.1f,
+            .output_abs_max = 1.0f,
+        }
+    };
+
+    Storage<PID::Settings> yaw_velocity_pid_storage{
+        "pid-v-y", PID::Settings{
+            .p = 0.03f,
+            .i = 0.005f,
+            .d = 0.0002f,
+            .i_limit = 0.1f,
+            .output_abs_max = 1.0f,
+        }
+    };
+
+    PID pitch_velocity_pid{
+        pitch_or_roll_velocity_pid_storage.settings,
+        0.2f,
+    };
+
+    PID roll_velocity_pid{
+        pitch_or_roll_velocity_pid_storage.settings,
+        0.2f
+    };
+
+    PID yaw_velocity_pid{
+        yaw_velocity_pid_storage.settings,
+        0.8f,
+    };
+
+    LowFrequencyFilter<float> yaw_error_filter{0.4f};
+
+    void init() {
+        pitch_or_roll_velocity_pid_storage.load();
+        yaw_velocity_pid_storage.load();
+    }
+
+    void interpret(const DroneControl &c, float dt, const EasyImu::FLU &flu) override {
+        const float roll = roll_velocity_pid.calc(
+            control.rollVelocity() - flu.rollVelocity(),
+            dt
+        );
+
+        const float pitch = pitch_velocity_pid.calc(
+            control.pitchVelocity() - flu.pitchVelocity(),
+            dt
+        );
+
+        const float yaw = -yaw_velocity_pid.calc(
+            yaw_error_filter.calc(control.yawVelocity() - flu.yawVelocity()),
+            dt
+        );
+
+        frame_driver.mixin(
+            control.thrust,
+            roll,
+            pitch,
+            yaw
+        );
+    }
+
+    void onDisarm() override {
+        pitch_velocity_pid.reset();
+        roll_velocity_pid.reset();
+        yaw_velocity_pid.reset();
+        yaw_error_filter.reset();
     }
 };
 
@@ -217,11 +334,25 @@ static void fatal() {
 }
 
 void setupTui() {
-    static nfui::PidSettingsPage pitch_or_roll_vel_page{pitch_or_roll_velocity_pid_storage};
-    static nfui::PidSettingsPage yaw_vel_page{yaw_velocity_pid_storage};
+    static auto &acrobatic_mode_behavior = AcrobaticModeBehavior::instance();
+    static nfui::PidSettingsPage pitch_or_roll_vel_page{acrobatic_mode_behavior.pitch_or_roll_velocity_pid_storage};
+    static nfui::PidSettingsPage yaw_vel_page{acrobatic_mode_behavior.yaw_velocity_pid_storage};
     static nfui::ImuPage imu_page{imu_storage, imu};
 
-    tui::PageManager::instance().bind(nfui::MainPage::instance());
+    auto &main_page = nfui::MainPage::instance();
+    static tui::Button switch_mode("m", [](tui::Button &button) {
+        static auto &behavior_manager = BehaviorManager::instance();
+        if (behavior_manager.isActive(acrobatic_mode_behavior)) {
+            behavior_manager.bind(ManualModeBehavior::instance());
+            button.label = "Manual";
+        } else {
+            behavior_manager.bind(acrobatic_mode_behavior);
+            button.label = "Acrobatic";
+        }
+    });
+    main_page.add(switch_mode);
+
+    tui::PageManager::instance().bind(main_page);
 }
 
 void setup() {
@@ -242,37 +373,22 @@ void setup() {
         fatal();
     }
 
-    pitch_or_roll_velocity_pid_storage.load();
-    yaw_velocity_pid_storage.load();
     imu_storage.load();
+    AcrobaticModeBehavior::instance().init();
 
     if (not EspNowClient::instance().init()) { fatal(); }
 
     digitalWrite(2, LOW);
     Logger_info("Start!");
+
+    BehaviorManager::instance().bind(AcrobaticModeBehavior::instance());
 }
 
 void loop() {
     static Chronometer chronometer{};
     static auto &esp_now = EspNowClient::instance();
     static auto &page_manager = tui::PageManager::instance();
-
-    static PID pitch_velocity_pid{
-        pitch_or_roll_velocity_pid_storage.settings,
-        0.1f,
-    };
-
-    static PID roll_velocity_pid{
-        pitch_or_roll_velocity_pid_storage.settings,
-        0.1f
-    };
-
-    static PID yaw_velocity_pid{
-        yaw_velocity_pid_storage.settings,
-        0.8f,
-    };
-
-    static LowFrequencyFilter<float> yaw_error_filter{0.4f};
+    static auto &behavior_manager = BehaviorManager::instance();
 
     delay(1);
 
@@ -288,73 +404,31 @@ void loop() {
         espnow::Protocol::send(esp_now.target, slice.data, slice.len);
     }
 
-    const auto dt = chronometer.calc();
-
     if (esp_now.timeout_manager.expired()) {
         control.armed = false;
     }
 
+    const auto dt = chronometer.calc();
+
     if (control.armed) {
-        const auto ned = imu.read(dt);
+        const auto flu = imu.read(dt);
 
-        static uint32_t last_debug_time = 0;
-        if (millis() - last_debug_time > 100) {
-            last_debug_time = millis();
+        constexpr float critical_angle = 60 * DEG_TO_RAD;
 
-            Logger_debug("Accel: X:%+.2f Y:%+.2f Z:%+.2f\t"
-                         "Angles: R:%+.1f P:%+.1f Y:%+.1f",
-                         ned.linear_acceleration.x,
-                         ned.linear_acceleration.y,
-                         ned.linear_acceleration.z,
-                         ned.roll() * RAD_TO_DEG,
-                         ned.pitch() * RAD_TO_DEG,
-                         ned.yaw() * RAD_TO_DEG
-            );
-        }
-
-        return;
-
-        constexpr float critical_angle = 70 * DEG_TO_RAD;
-
-        if (std::abs(ned.pitch()) > critical_angle or std::abs(ned.roll()) > critical_angle) {
+        if (std::abs(flu.pitch()) > critical_angle or std::abs(flu.roll()) > critical_angle) {
             Logger_warn("Critical roll/pitch. Disarming");
             control.armed = false;
             return;
         }
 
-        const float roll = roll_velocity_pid.calc(
-            control.rollVelocity() - ned.rollVelocity(),
-            dt
-        );
-
-        const float pitch = pitch_velocity_pid.calc(
-            control.pitchVelocity() - ned.pitchVelocity(),
-            dt
-        );
-
-        const float yaw = yaw_velocity_pid.calc(
-            yaw_error_filter.calc(control.yawVelocity() - ned.yawVelocity()),
-            dt
-        );
-
-        frame_driver.mixin(
-            control.thrust,
-            roll,
-            pitch,
-            yaw
-        );
+        behavior_manager.interpret(control, dt, flu);
 
     } else {
+        behavior_manager.onDisarm();
         control.thrust = 0;
         control.pitch_power = 0;
         control.yaw_power = 0;
         control.roll_power = 0;
-
-        pitch_velocity_pid.reset();
-        roll_velocity_pid.reset();
-        yaw_velocity_pid.reset();
-        yaw_error_filter.reset();
-
         frame_driver.disable();
     }
 
