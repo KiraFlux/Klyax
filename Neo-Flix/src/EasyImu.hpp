@@ -21,7 +21,7 @@ public:
     };
 
     struct AccelCalibrator {
-        static constexpr auto samples_per_orientation = 5000;
+        static constexpr auto samples_per_orientation = 1000;
         static constexpr auto orientations_total = 6;
 
         ela::vec3f accel_min{};
@@ -76,16 +76,16 @@ private:
 
     Settings &settings;
 
-    ICM_20948_SPI imu{};
     LowFrequencyFilter<ela::vec3f> accel_filter{0.2f};
     LowFrequencyFilter<ela::vec3f> gyro_filter{0.35};
     ComplementaryFilter<float> roll_filter{0.98f};
     ComplementaryFilter<float> pitch_filter{0.98f};
     float yaw{0.0f};
-
     AccelCalibrator accel_calibrator{};
 
 public:
+
+    ICM_20948_SPI imu{};
 
     explicit EasyImu(Settings &settings) :
         settings{settings} {}
@@ -247,29 +247,25 @@ public:
 
         imu.getAGMT();
 
-        // Правильное преобразование гироскопа (в радианах/секунду)
         const ela::vec3f gyro = gyro_filter.calc(
             {
-                (imu.gyrY() - settings.gyro_bias.y) * deg_to_rad,  // Ось Y датчика → X дрона (крен)
-                (imu.gyrX() - settings.gyro_bias.x) * deg_to_rad,  // Ось X датчика → Y дрона (тангаж)
-                -(imu.gyrZ() - settings.gyro_bias.z) * deg_to_rad  // Ось Z датчика → -Z дрона (инвертировано)
+                (imu.gyrY() - settings.gyro_bias.y) * deg_to_rad,
+                (imu.gyrX() - settings.gyro_bias.x) * deg_to_rad,
+                (imu.gyrZ() - settings.gyro_bias.z) * deg_to_rad
             }
         );
 
-        // Правильное преобразование акселерометра (в g)
         const ela::vec3f accel = accel_filter.calc(
             {
-                (imu.accY() - settings.accel_bias.y) * settings.accel_scale.y,   // Ось Y датчика → X дрона
-                (imu.accX() - settings.accel_bias.x) * settings.accel_scale.x,   // Ось X датчика → Y дрона
-                -(imu.accZ() - settings.accel_bias.z) * settings.accel_scale.z   // Ось Z датчика → -Z дрона
+                -(imu.accY() - settings.accel_bias.y) * settings.accel_scale.y,
+                -(imu.accX() - settings.accel_bias.x) * settings.accel_scale.x,
+                (imu.accZ() - settings.accel_bias.z) * settings.accel_scale.z
             }
         );
 
-        // Правильный расчет углов из акселерометра
         const float roll_acc = atan2f(accel.y, accel.z);
-        const float pitch_acc = atan2f(-accel.x, sqrtf(accel.y * accel.y + accel.z * accel.z));
+        const float pitch_acc = -atan2f(accel.x, accel.z);
 
-        // Интегрирование рыскания по гироскопу
         yaw = yaw + gyro.z * dt;
 
         return NedCoordinateSystem{
@@ -282,6 +278,7 @@ public:
             .linear_acceleration = accel
         };
     }
+
 private:
 
     inline static float normalizeAngle(float angle) noexcept {

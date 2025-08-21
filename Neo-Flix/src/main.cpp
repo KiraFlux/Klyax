@@ -183,8 +183,8 @@ static DroneFrameDriver frame_driver{
 static Storage<EasyImu::Settings> imu_storage{
     "imu", {
         .gyro_bias = {},
-        .accel_bias = {-13.6719f, -17.8223f, -2.9297f},
-        .accel_scale = {+0.0010f, +0.0010f, +0.0010f},
+        .accel_bias = {},
+        .accel_scale = {0.0010f, 0.0010f, 0.0010f},
     }
 };
 
