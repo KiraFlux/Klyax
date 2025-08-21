@@ -36,35 +36,36 @@ void loop() {
 
     imu.imu.getAGMT();
 
-//    ela::vec3f acc = fromIMUtoFLU(imu.imu.accX(), imu.imu.accY(), imu.imu.accZ());
+    ela::vec3f acc = fromIMUtoFLU(imu.imu.accX(), imu.imu.accY(), imu.imu.accZ());
 
-    ela::vec3f gyro = fromIMUtoFLU(-imu.imu.gyrX(), -imu.imu.gyrY(), -imu.imu.gyrZ());
+//    ela::vec3f gyro = fromIMUtoFLU(-imu.imu.gyrX(), -imu.imu.gyrY(), -imu.imu.gyrZ());
 
-    static ela::vec3f orient{};
-    constexpr float dt = 1e-3;
-//    float acc_roll = std::atan2(acc.y, -acc.z);
-//    float acc_pitch = std::atan2(-acc.x, std::hypot(acc.y, acc.z));
+//    static ela::vec3f orient{};
+//    constexpr float dt = 1e-3;
+    float acc_roll = std::atan2(-acc.y, -acc.z);
+    float acc_pitch = std::atan2(-acc.x, std::hypot(acc.y, acc.z));
 
-    orient += gyro * dt;
+//    orient += gyro * dt;
 
     static int i = 0;
     i += 1;
     if (i == 100) {
         i = 0;
+//        Serial.printf(
+//            "G[%+f %+f %+f]\n",
+//            orient.x, orient.y, orient.z
+//        );
         Serial.printf(
-            "G[%+f %+f %+f]\n",
-            orient.x, orient.y, orient.z
+            "A[%+.2f %+.2f %+.2f]\t"
+            "Roll: %+3.1f\tPitch: %+3.1f\n",
+            acc.x, acc.y, acc.z,
+            acc_roll * RAD_TO_DEG,
+            acc_pitch * RAD_TO_DEG
         );
     }
 
 
-//    Serial.printf(
-//        "A[%+.2f %+.2f %+.2f]\t"
-//        "Roll: %+3.1f\tPitch: %+3.1f\n",
-//        acc.x, acc.y, acc.z,
-//        acc_roll * RAD_TO_DEG,
-//        acc_pitch * RAD_TO_DEG
-//    );
+
 
     delay(1);
 }
