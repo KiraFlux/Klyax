@@ -1,5 +1,6 @@
 #include "Arduino.h"
 #include "EasyImu.hpp"
+#include "tools/time.hpp"
 
 
 static EasyImu::Settings imu_set{
@@ -27,45 +28,23 @@ void setup() {
     imu.calibrateGyro(5000);
 }
 
-ela::vec3f fromIMUtoFLU(float x, float y, float z) {
-    return ela::vec3f{-y, +x, -z};
-}
-
 void loop() {
-    while (not imu.imu.dataReady()) {}
+    static Chronometer chronometer{};
 
-    imu.imu.getAGMT();
+    delay(1);
+    const auto dt = chronometer.calc();
 
-    ela::vec3f acc = fromIMUtoFLU(imu.imu.accX(), imu.imu.accY(), imu.imu.accZ());
-
-//    ela::vec3f gyro = fromIMUtoFLU(-imu.imu.gyrX(), -imu.imu.gyrY(), -imu.imu.gyrZ());
-
-//    static ela::vec3f orient{};
-//    constexpr float dt = 1e-3;
-    float acc_roll = std::atan2(-acc.y, -acc.z);
-    float acc_pitch = std::atan2(-acc.x, std::hypot(acc.y, acc.z));
-
-//    orient += gyro * dt;
+    const auto flu = imu.read(dt);
 
     static int i = 0;
     i += 1;
     if (i == 100) {
         i = 0;
-//        Serial.printf(
-//            "G[%+f %+f %+f]\n",
-//            orient.x, orient.y, orient.z
-//        );
         Serial.printf(
-            "A[%+.2f %+.2f %+.2f]\t"
-            "Roll: %+3.1f\tPitch: %+3.1f\n",
-            acc.x, acc.y, acc.z,
-            acc_roll * RAD_TO_DEG,
-            acc_pitch * RAD_TO_DEG
+            "A[%+1.2f %+1.2f %+1.2f]\t"
+            "O[%+3.1f %+3.1f %+3.1f]\n",
+            flu.forwardAcceleration(), flu.leftAcceleration(), flu.upAcceleration(),
+            flu.roll() * RAD_TO_DEG, flu.pitch() * RAD_TO_DEG, flu.yaw() * RAD_TO_DEG
         );
     }
-
-
-
-
-    delay(1);
 }

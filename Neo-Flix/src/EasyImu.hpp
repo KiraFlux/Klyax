@@ -189,30 +189,36 @@ public:
         return true;
     }
 
-    /// Система координат NED (North East Down | Вперёд Вправо Вниз)
-    struct NedCoordinateSystem {
+
+    /// Система координат FLU (Forward Left Up)
+    struct FLU {
+
         /// Углы поворота в Рад:
-        /// X: Roll (Крен) - Поворот вокруг оси X (вперёд)
-        /// Y: Pitch (Тангаж) - Поворот вокруг оси Y (вправо)
-        /// Z: Yaw (Рыскание) - Поворот вокруг оси Z (вниз)
+        /// X: Roll (Крен)
+        /// Y: Pitch (Тангаж)
+        /// Z: Yaw (Рыскание)
         ela::vec3f orientation;
 
-        /// Угловые скорости в Рад/с
-        /// X: Roll (Крен) - Вращение вокруг оси X (вперёд)
-        /// Y: Pitch (Тангаж) - Вращение вокруг оси Y (вправо)
-        /// Z: Yaw (Рыскание) - Вращение вокруг оси Z (вниз)
-        ela::vec3f angular_velocity;
-
-        /// Линейное ускорениe в G
-        /// X: North (вперёд)
-        /// Y: East (Вправо)
-        /// Z: Down (Вниз)
-        ela::vec3f linear_acceleration;
-
         /// Roll (Крен)
-        /// Поворот вокруг оси X (вперёд)
+        /// Поворот вокруг оси X
         /// Радианы
         inline float roll() const { return orientation.x; }
+
+        /// Pitch (Тангаж)
+        /// Поворот вокруг оси Y
+        /// Радианы
+        inline float pitch() const { return orientation.y; }
+
+        /// Yaw (Рыскание)
+        /// Поворот вокруг оси Z (Вверх)
+        /// Радианы
+        inline float yaw() const { return orientation.z; }
+
+        /// Угловые скорости в Рад/с
+        /// X: Roll (Крен)
+        /// Y: Pitch (Тангаж)
+        /// Z: Yaw (Рыскание)
+        ela::vec3f angular_velocity;
 
         /// Roll (Крен)
         /// Вращение вокруг оси X (вперёд)
@@ -220,58 +226,56 @@ public:
         inline float rollVelocity() const { return angular_velocity.x; }
 
         /// Pitch (Тангаж)
-        /// Поворот вокруг оси Y (вправо)
-        /// Радианы
-        inline float pitch() const { return orientation.y; }
-
-        /// Pitch (Тангаж)
-        /// Вращение вокруг оси Y (вправо)
+        /// Вращение вокруг оси Y (Влево)
         /// Радианы / секунду
         inline float pitchVelocity() const { return angular_velocity.y; }
 
         /// Yaw (Рыскание)
-        /// Поворот вокруг оси Z (вниз)
-        /// Радианы
-        inline float yaw() const { return orientation.z; }
-
-        /// Yaw (Рыскание)
-        /// Вращение вокруг оси Z (вниз)
+        /// Вращение вокруг оси Z (Вверх)
         /// Радианы / секунду
         inline float yawVelocity() const { return angular_velocity.z; }
+
+        /// Линейное ускорениe в G
+        /// X: Forward (вперёд)
+        /// Y: Left (Влево)
+        /// Z: Up (Вверх)
+        ela::vec3f linear_acceleration;
+
+        /// Forward (Вперед)
+        /// Ускорение по оси X
+        /// G * мм / с^2
+        inline float forwardAcceleration() const { return linear_acceleration.x; }
+
+        /// Left (Влево)
+        /// Ускорение по оси Y
+        /// G * мм / с^2
+        inline float leftAcceleration() const { return linear_acceleration.y; }
+
+        /// Up (вверх)
+        /// Ускорение по оси Z
+        /// G * мм / с^2
+        inline float upAcceleration() const { return linear_acceleration.z; }
     };
 
-    NedCoordinateSystem read(float dt) noexcept {
+    FLU read(float dt) noexcept {
         constexpr float deg_to_rad = M_PI / 180.0f;
 
         while (not imu.dataReady()) {}
 
         imu.getAGMT();
 
-        const ela::vec3f gyro = gyro_filter.calc(
-            {
-                (imu.gyrY() - settings.gyro_bias.y) * deg_to_rad,
-                (imu.gyrX() - settings.gyro_bias.x) * deg_to_rad,
-                (imu.gyrZ() - settings.gyro_bias.z) * deg_to_rad
-            }
-        );
+        const ela::vec3f gyro = gyro_filter.calc((transformToFLU(-imu.gyrX(), -imu.gyrY(), -imu.gyrZ()) - settings.gyro_bias) * deg_to_rad);
 
-        const ela::vec3f accel = accel_filter.calc(
-            {
-                -(imu.accY() - settings.accel_bias.y) * settings.accel_scale.y,
-                -(imu.accX() - settings.accel_bias.x) * settings.accel_scale.x,
-                (imu.accZ() - settings.accel_bias.z) * settings.accel_scale.z
-            }
-        );
+        const ela::vec3f accel = accel_filter.calc(compMul(transformToFLU(imu.accX(), imu.accY(), imu.accZ()) - settings.accel_bias, settings.accel_scale));
 
-        const float roll_acc = atan2f(accel.y, accel.z);
-        const float pitch_acc = -atan2f(accel.x, accel.z);
+        const float accel_roll = std::atan2(-accel.y, -accel.z);
+        const float accel_pitch = std::atan2(accel.x, std::hypot(accel.y, accel.z)); // даёт positive при nose down;
+        yaw += gyro.z * dt;
 
-        yaw = yaw + gyro.z * dt;
-
-        return NedCoordinateSystem{
+        return FLU{
             .orientation = {
-                normalizeAngle(roll_filter.calc(roll_acc, gyro.x, dt)),
-                normalizeAngle(pitch_filter.calc(pitch_acc, gyro.y, dt)),
+                normalizeAngle(roll_filter.calc(accel_roll, gyro.x, dt)),
+                normalizeAngle(pitch_filter.calc(accel_pitch, gyro.y, dt)),
                 yaw
             },
             .angular_velocity = gyro,
@@ -281,11 +285,22 @@ public:
 
 private:
 
-    inline static float normalizeAngle(float angle) noexcept {
+    static float normalizeAngle(float angle) noexcept {
         angle = static_cast<float>(std::fmod(angle + M_PI, M_TWOPI));
         return static_cast<float>(angle >= 0 ? angle - M_PI : angle + M_PI);
     }
 
+    inline static ela::vec3f transformToFLU(float x, float y, float z) {
+        return {-y, +x, -z};
+    }
+
+    static ela::vec3f compMul(const ela::vec3f &a, const ela::vec3f &b) {
+        return {
+            a.x * b.x,
+            a.y * b.y,
+            a.z * b.z
+        };
+    }
 };
 
 
