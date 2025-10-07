@@ -1,6 +1,6 @@
 # Признание авторства
 
-Проект Neo-Flix концептуально вдохновлён разработкой [Flix](https://github.com/okalachev/flix),
+Проект Klyax концептуально вдохновлён разработкой [Flix](https://github.com/okalachev/flix),
 созданной Oleg Kalachev.
 
 Хотя в этом репозитории не используется исходный код или модели Flix,
