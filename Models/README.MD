@@ -8,4 +8,4 @@
 
 [Klyax](./Klyax) - Основная сборка дрона
 
-[Purchased](./Purchased) - Модели заводских решений
+[Purchased](./Purchased) - Модели заводских деталей
