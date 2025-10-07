@@ -1,4 +1,4 @@
-# Neo-Flix
+# Klyax
 
 Фан версия образовательного квадрокоптера, вдохновлённая концепцией проекта [Flix](https://github.com/okalachev/flix).
 
