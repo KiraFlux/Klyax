@@ -34,6 +34,8 @@ def cleanup(folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None
     Searching for all files by `masks` in `folder`
     Deletes Selected files if `dry_run`
     """
+    print(f"Working in {folder=}")
+
     if not folder.exists() or not folder.is_dir():
         raise FileNotFoundError(f"Models folder not found: {folder}")
 
@@ -44,9 +46,10 @@ def cleanup(folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None
         print(f"No files found for {masks=} (Everything in {folder=!r} is clean)")
         return
 
-    print(f"{files_founded=} for {masks=}\n")
-    for file in files:
-        print(f" - {file}")
+    print(f"{files_founded=} for {masks=}")
+    for i, file in enumerate(files):
+        print(f"{i:>3} -> {file}")
+    print()
 
     if dry_run:
         print("Dry run: no files will be deleted. Re-run with --delete to remove them.")
