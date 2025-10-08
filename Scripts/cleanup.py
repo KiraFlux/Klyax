@@ -1,6 +1,4 @@
-#!/usr/bin/env python3.12
 """
-
 Removes files by given glob masks from the Models folder (recursive).
 Raises FileNotFoundError if the Models folder does not exist.
 """
@@ -16,9 +14,14 @@ from typing import Sequence
 
 _default_masks: Final[Sequence[str]] = (
     "*.bak",
-    "*.log"
+    "*.log",
 )
 
+_root_folder: Final = Path(__file__).resolve().parent.parent  # This File -> Scripts Folder -> Root
+"""Project Folder"""
+
+_models_folder: Final = _root_folder / "Models"
+"""Models Folder"""
 
 def get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
     """Yield files in folder (recursively) matching any of the provided glob masks."""
@@ -26,40 +29,41 @@ def get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
         yield from folder.rglob(mask)
 
 
-def _cleanup(masks: Sequence[str] = ("*.bak",), *, dry_run: bool = True) -> None:
-    root = Path(__file__).resolve().parent.parent  # This File -> Scripts Folder -> Root
-    models_folder = root / "Models"
+def cleanup(folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None:
+    """
+    Searching for all files by `masks` in `folder`
+    Deletes Selected files if `dry_run`
+    """
+    if not folder.exists() or not folder.is_dir():
+        raise FileNotFoundError(f"Models folder not found: {folder}")
 
-    if not models_folder.exists() or not models_folder.is_dir():
-        raise FileNotFoundError(f"Models folder not found: {models_folder}")
+    files = tuple(get_files_by_mask(folder, masks))
+    files_founded = len(files)
 
-    files = tuple(get_files_by_mask(models_folder, masks))
-
-    if not files:
-        print(f"No files found for masks: {masks}")
+    if files_founded == 0:
+        print(f"No files found for {masks=} (Everything in {folder=!r} is clean)")
         return
 
-    print(f"Found {len(files)} file(s) for masks: {masks}")
-    for p in files:
-        print(f" - {p}")
+    print(f"{files_founded=} for {masks=}\n")
+    for file in files:
+        print(f" - {file}")
 
     if dry_run:
         print("Dry run: no files will be deleted. Re-run with --delete to remove them.")
         return
 
-    removed = 0
+    files_removed = 0
 
-    for p in files:
-
+    for file in files:
         try:
-            p.unlink()
-            removed += 1
-            print(f'Removed: {p}')
+            file.unlink()
+            files_removed += 1
+            print(f'Removed: {file}')
 
         except Exception as e:
-            sys.stderr.write(f'Failed to remove {p} : {e}\n')
+            sys.stderr.write(f'Failed to remove {file} : {e}\n')
 
-    print(f"Removed {removed} of {len(files)} file(s).")
+    print(f"{files_removed=} / {files_founded}")
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -73,7 +77,7 @@ def _start():
     args = _parse_args()
 
     try:
-        _cleanup(tuple(args.masks), dry_run=not args.delete)
+        cleanup(_models_folder, tuple(args.masks), dry_run=not args.delete)
 
     except FileNotFoundError as e:
         # Exit with non-zero code as requested (program should crash if Models missing)
