@@ -1,6 +1,7 @@
 """
+Handle cleanup tool
+
 Removes files by given glob masks from the Models folder (recursive).
-Raises FileNotFoundError if the Models folder does not exist.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ _root_folder: Final = Path(__file__).resolve().parent.parent  # This File -> Scr
 _models_folder: Final = _root_folder / "Models"
 """Models Folder"""
 
+
 def get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
     """Yield files in folder (recursively) matching any of the provided glob masks."""
     for mask in masks:
@@ -32,7 +34,10 @@ def get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
 def cleanup(folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None:
     """
     Searching for all files by `masks` in `folder`
-    Deletes Selected files if `dry_run`
+    :param dry_run: Selected files will Delete if False
+    :param masks:
+    :param folder Target folder
+    :raises FileNotFoundError if the Models folder does not exist.
     """
     print(f"Working in {folder=}")
 
