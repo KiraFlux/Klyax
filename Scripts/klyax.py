@@ -13,11 +13,6 @@ from typing import Final
 from typing import Iterator
 from typing import Sequence
 
-_default_masks: Final[Sequence[str]] = (
-    "*.bak",
-    "*.log",
-)
-
 _root_folder: Final = Path(__file__).resolve().parent.parent  # This File -> Scripts Folder -> Root
 """Project Folder"""
 
@@ -36,6 +31,10 @@ def cleanup(folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None
     Searching for all files by `masks` in `folder`
     Deletes Selected files if `dry_run`
     """
+    if len(masks) == 0:
+        print(f"{masks=}. Exit")
+        return
+
     print(f"Working in {folder=}")
 
     if not folder.exists() or not folder.is_dir():
@@ -75,7 +74,6 @@ def _create_cleanup_parser(p: ArgumentParser) -> None:
     p.add_argument(
         'masks',
         nargs='*',
-        default=_default_masks,
         help='Glob masks'
     )
 
