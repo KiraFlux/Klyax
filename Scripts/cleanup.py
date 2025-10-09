@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from argparse import ArgumentParser
 from pathlib import Path
 from typing import Final
 from typing import Iterator
@@ -22,6 +23,7 @@ _root_folder: Final = Path(__file__).resolve().parent.parent  # This File -> Scr
 
 _models_folder: Final = _root_folder / "Models"
 """Models Folder"""
+
 
 def get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
     """Yield files in folder (recursively) matching any of the provided glob masks."""
@@ -48,7 +50,7 @@ def cleanup(folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None
 
     print(f"{files_founded=} for {masks=}")
     for i, file in enumerate(files):
-        print(f"{i:>3} -> {file}")
+        print(f"{i + 1:>3} -> {file}")
     print()
 
     if dry_run:
@@ -69,18 +71,46 @@ def cleanup(folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None
     print(f"{files_removed=} / {files_founded}")
 
 
-def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Remove files by glob masks from the Models folder.")
-    p.add_argument("masks", nargs="*", default=_default_masks, help='Glob masks (e.g. "*.bak" "*.tmp")')
-    p.add_argument("-d", "--delete", action="store_true", help="Actually delete files (default: dry run)")
-    return p.parse_args(argv)
+def _create_cleanup_parser(p: ArgumentParser) -> None:
+    p.add_argument(
+        'masks',
+        nargs='*',
+        default=_default_masks,
+        help='Glob masks'
+    )
+
+    p.add_argument(
+        '-d',
+        '--delete',
+        action='store_true',
+        help='Actually delete files'
+    )
+
+
+def _create_parser() -> ArgumentParser:
+    p = argparse.ArgumentParser(description="Klyax project organizer tool")
+
+    sp = p.add_subparsers(
+        dest='mode',
+        required=True,
+    )
+    _create_cleanup_parser(sp.add_parser(
+        'cleanup',
+        help='Remove junk files by glob masks from Models folder'
+    ))
+
+    return p
 
 
 def _start():
-    args = _parse_args()
+    p = _create_parser()
+    args = p.parse_args()
 
     try:
-        cleanup(_models_folder, tuple(args.masks), dry_run=not args.delete)
+        match args.mode:  # type: ignore
+            case 'cleanup':
+                cleanup(_models_folder, tuple(args.masks), dry_run=not args.delete)
+
 
     except FileNotFoundError as e:
         # Exit with non-zero code as requested (program should crash if Models missing)
