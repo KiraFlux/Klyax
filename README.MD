@@ -19,4 +19,5 @@
 | [Models](./Models)       | Модели в Компас‑3D. [Klyax](./Models/Klyax); [Purchased](./Models/Purchased)    |
 | [Artifacts](./Artifacts) | Финальные файлы для производства (3MF, STP, G-code и др.)                       |
 | [Scripts](./Scripts)     | Набор Python‑утилит: генерация README, обработка рендеров, мелкие автоматизации |
+| [Images](./Images) | Иллюстрации для репозитория |
 

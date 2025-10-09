@@ -1,7 +1,5 @@
 """
-Handle cleanup tool
-
-Removes files by given glob masks from the Models folder (recursive).
+Klyax Project Python script
 """
 
 from __future__ import annotations
