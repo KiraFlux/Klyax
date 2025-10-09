@@ -115,9 +115,8 @@ def _start():
 
 
     except FileNotFoundError as e:
-        # Exit with non-zero code as requested (program should crash if Models missing)
         sys.stderr.write(str(e))
-        sys.exit(2)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
