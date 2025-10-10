@@ -14,6 +14,7 @@ from abc import abstractmethod
 from argparse import ArgumentParser
 from argparse import Namespace
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import ClassVar
 from typing import Final
@@ -23,11 +24,20 @@ from typing import Optional
 from typing import Sequence
 from typing import final
 
+from klyax.models import AssemblyUnitModel
+from klyax.models import Model
+from klyax.models import ModelRegistry
+from klyax.models import PartModel
 from klyax.project import Project
 
 
+@dataclass(kw_only=True)
 class CommandRunner(ABC):
     """Command Mode Runner"""
+
+    __intend_size: ClassVar = 4
+
+    __intend: int = field(init=False, default=0)
 
     @classmethod
     @abstractmethod
@@ -59,8 +69,19 @@ class CommandRunner(ABC):
         sys.stderr.write(self._format_log("error", message))
 
     @final
+    def push(self) -> None:
+        """Push intend"""
+        self.__intend += 1
+
+    @final
+    def pop(self) -> None:
+        """Pop intend"""
+        self.__intend -= 1
+        assert self.__intend >= 0
+
+    @final
     def _format_log(self, prefix: str, message: str) -> str:
-        return f"[{self.name()}:{prefix}] {message}\n"
+        return f"[{self.name()}:{prefix}]{(' ' * self.__intend_size) * self.__intend} {message}\n"
 
 
 @final
@@ -100,7 +121,7 @@ class CommandLineInterface:
 
 
 @final
-@dataclass(kw_only=True, frozen=True)
+@dataclass(kw_only=True)
 class CleanupCommandRunner(CommandRunner):
     """Uses to clean up project folders"""
 
@@ -193,12 +214,11 @@ class CleanupCommandRunner(CommandRunner):
 
 
 @final
-@dataclass(kw_only=True, frozen=True)
-class DisplayEntityCommandRunner(CommandRunner):
-    """Displays Project Entity (Unit or Part) Info"""
+@dataclass(kw_only=True)
+class DisplayModelCommandRunner(CommandRunner):
+    """Displays Project Model Info"""
 
-    entity_type: str
-    entity_id: str
+    identifier: str
 
     @classmethod
     def name(cls) -> str:
@@ -207,28 +227,92 @@ class DisplayEntityCommandRunner(CommandRunner):
     @classmethod
     def configure_parser(cls, p: ArgumentParser) -> None:
         p.add_argument(
-            "entity",
-            nargs=1,
-            choices=(
-                "unit",
-                "part"
-            ),
-        )
-        p.add_argument(
             "identifier",
-            nargs=1,
-            help="Unix-like path from models folder to target file name (without ext)"
+            help="Unix-like path from models folder to target file name (without extension)"
         )
 
     @classmethod
     def create(cls, args: Namespace) -> CommandRunner:
         return cls(
-            entity_type=args.entity,
-            entity_id=args.identifier,
+            identifier=args.identifier,
         )
 
     def run(self) -> None:
-        self.log_info(f"running {self}")
+        part = ModelRegistry.get_part(self.identifier)
+
+        if part is not None:
+            self._display_part(part)
+            return
+        del part
+
+        unit = ModelRegistry.get_assembly_unit(self.identifier)
+
+        if unit is not None:
+            self._display_assembly_unit(unit)
+            return
+        del unit
+
+        self.log_error(f"Cannot find model with {self.identifier=}")
+
+    def _display_model(self, model: Model) -> None:
+        self.log_info("")
+        self.log_info(f"{model.__class__.__name__} '{model.id}':")
+
+        image_count = len(model.images)
+        if image_count == 0:
+            return
+
+        self.push()
+        self.log_info(f"Images: {image_count}")
+
+        self.push()
+        for i in model.images:
+            self.log_info(i.name)
+        self.pop()
+
+        self.pop()
+
+    def _display_part(self, part: PartModel) -> None:
+        self._display_model(part)
+
+        c = len(part.transitions)
+        if c == 0:
+            return
+
+        self.push()
+        self.log_info(f"Transitions: {c}")
+
+        self.push()
+        for t in part.transitions:
+            self.log_info(t.name)
+        self.pop()
+
+        self.pop()
+
+    def _display_assembly_unit(self, unit: AssemblyUnitModel) -> None:
+        self._display_model(unit)
+
+        i = len(unit.models)
+        if i == 0:
+            return
+
+        self.push()
+        self.log_info(f"Models: {i}")
+
+        self.push()
+        for m in unit.models:
+
+            if isinstance(m, PartModel):
+                self._display_part(m)
+
+            elif isinstance(m, AssemblyUnitModel):
+                self._display_assembly_unit(m)
+
+            else:
+                raise TypeError(m)
+        self.pop()
+
+        self.pop()
 
 
 @final

@@ -4,7 +4,7 @@ import sys
 
 from klyax.cli import CleanupCommandRunner
 from klyax.cli import CommandLineInterface
-from klyax.cli import DisplayEntityCommandRunner
+from klyax.cli import DisplayModelCommandRunner
 from klyax.cli import UpdateReadmeCommandRunner
 
 
@@ -12,7 +12,7 @@ def _start():
     cli = CommandLineInterface((
         CleanupCommandRunner,
         UpdateReadmeCommandRunner,
-        DisplayEntityCommandRunner,
+        DisplayModelCommandRunner,
     ))
 
     args = cli.parse_args(None)
@@ -23,7 +23,8 @@ def _start():
 
     except Exception as e:
         sys.stderr.write(str(e))
-        sys.exit(1)
+        raise
+        # sys.exit(1)
 
 
 _start()

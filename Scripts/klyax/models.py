@@ -5,6 +5,7 @@ from abc import ABC
 from pathlib import Path
 from typing import Final
 from typing import Iterable
+from typing import Optional
 from typing import Sequence
 from typing import final
 
@@ -21,10 +22,7 @@ class Model(ABC):
         self.words: Final[Sequence[str]] = self.name.split(Project.words_separator)
         """Words from filename"""
 
-        self.id: Final = Project.id_separator.join((
-            p.name
-            for p in self.path.relative_to(Project.models_folder).parents
-        )) + Project.id_separator + self.name
+        self.id: Final = Project.id_separator.join(self.path.relative_to(Project.models_folder).parts)
         """Model Identifier"""
 
         self.images: Final[Sequence[Path]] = tuple(self._search_by_extensions(Project.image_extensions))
@@ -74,7 +72,8 @@ class AssemblyUnitModel(Model):
 
         super().__init__(path)
 
-        self.entities: Final[Sequence[Model]] = self._load_part_model() + self._load_assembly_unit_models()
+        self.models: Final[Sequence[Model]] = self._load_part_model() + self._load_assembly_unit_models()
+        """Models inside"""
 
     def _load_assembly_unit_models(self):
         return tuple(map(AssemblyUnitModel, Project.iter_folders(self.folder)))
@@ -95,22 +94,40 @@ class ModelRegistry:
         raise TypeError(f"Cannot create instance of {self.__class__.__name__}")
 
     @classmethod
-    def get_part(cls, identifier: str) -> PartModel:
+    def get_part(cls, identifier: str) -> Optional[PartModel]:
         """Get Part model by Identifier"""
-        return PartModel(cls._get_path(identifier).with_suffix(Project.part_model_extension))
+        path = cls._get_path(identifier, Project.part_model_extension)
+
+        if path is None:
+            return None
+
+        return PartModel(path)
 
     @classmethod
-    def get_assembly_unit(cls, identifier: str) -> AssemblyUnitModel:
+    def get_assembly_unit(cls, identifier: str) -> Optional[AssemblyUnitModel]:
         """Get Part model by Identifier"""
-        return AssemblyUnitModel(cls._get_path(identifier))
+        path = cls._get_path(identifier)
+
+        if path is None:
+            return None
+
+        return AssemblyUnitModel(path)
 
     @classmethod
-    def _get_path(cls, identifier: str) -> Path:
-        return Path(Project.models_folder).joinpath(*identifier.split(Project.id_separator))
+    def _get_path(cls, identifier: str, suffix: Optional[str] = None) -> Optional[Path]:
+        ret = Path(Project.models_folder).joinpath(identifier)
+
+        if suffix:
+            ret = ret.with_suffix("." + suffix)
+
+        if ret.exists():
+            return ret
+
+        return None
 
 
 def _test():
-    unit = ModelRegistry.get_assembly_unit("Klyax")
+    unit = ModelRegistry.get_assembly_unit("Klyax/Frame-Base")
 
     return
 

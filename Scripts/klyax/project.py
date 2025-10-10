@@ -20,7 +20,7 @@ class Project:
     words_separator: Final = '-'
     """Uses to separate Words in Identifier"""
 
-    root_folder: Final = Path(os.getcwd()).resolve().parent.parent  # klyax module -> Scripts Folder -> Root
+    root_folder: Final = Path(os.getcwd()).resolve().parent  # klyax module -> Scripts Folder -> Root
     """Project Folder"""
 
     models_folder: Final = root_folder / "Models"

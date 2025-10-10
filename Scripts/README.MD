@@ -25,3 +25,19 @@
     - `python -m klyax cleanup -d "*.bak" "*.log"`
 - Shell wrapper [`cleanup.sh`](cleanup.sh):
     - `sh cleanup.sh -d "*.bak" "*.log"`
+
+### Режим display
+
+- Назначение: Отобразить значение идентификатора из реестра моделей
+
+- Аргументы:
+    - `identifier` - Unix-подобный путь к модели
+
+Примеры:
+
+- Деталь:
+    - `python -m klyax display Purchased/Propeller` - Выведет список моделей сборки, изображения и т.п., что учитывает (`ModelRegistry`)
+
+- Сборочная единица:
+    - `python -m klyax display Klyax` - Выведет список моделей сборки, изображения и т.п., что учитывает (`ModelRegistry`)
+  
