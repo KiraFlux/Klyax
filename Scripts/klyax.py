@@ -8,8 +8,8 @@ from abc import abstractmethod
 from argparse import ArgumentParser
 from argparse import Namespace
 from collections.abc import MutableMapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 from typing import Final
 from typing import Iterable
 from typing import Iterator
@@ -41,6 +41,11 @@ class CommandRunner(ABC):
 
     @classmethod
     @abstractmethod
+    def create(cls, args: Namespace) -> CommandRunner:
+        """Create instance of command runner and pass cli args"""
+
+    @classmethod
+    @abstractmethod
     def name(cls) -> str:
         """Get Command Mode name"""
 
@@ -50,7 +55,7 @@ class CommandRunner(ABC):
         """Configure mode subparser"""
 
     @abstractmethod
-    def run(self, args: Namespace) -> None:
+    def run(self) -> None:
         """Execute command"""
 
 
@@ -67,16 +72,16 @@ class CommandLineInterface:
             required=True,
         )
 
-        self.__command_runner_implementations: Final[MutableMapping[str, Callable[[], CommandRunner]]] = dict()
+        self.__command_runner_implementations: Final[MutableMapping[str, type[CommandRunner]]] = dict()
 
         for runner_impl in runner_implementations:
             self.register(runner_impl)
 
     def parse_args(self, args: Optional[Sequence[str]]) -> Namespace:
-        """Get arguments"""
+        """Parse args to attributes object"""
         return self.__parser.parse_args(args)
 
-    def get(self, mode: str) -> Callable[[], CommandRunner]:
+    def get(self, mode: str) -> type[CommandRunner]:
         """Get command mode implementation"""
         return self.__command_runner_implementations[mode]
 
@@ -89,7 +94,22 @@ class CommandLineInterface:
         ))
 
 
+@dataclass(kw_only=True, frozen=True)
 class CleanupCommandRunner(CommandRunner):
+    """Uses to clean up models folder"""
+
+    masks: Sequence[str]
+    """File Masks"""
+
+    dry: bool
+    """Selected files will Delete if False"""
+
+    @classmethod
+    def create(cls, args: Namespace) -> CommandRunner:
+        return CleanupCommandRunner(
+            masks=args.masks,
+            dry=not args.delete,
+        )
 
     @classmethod
     def name(cls) -> str:
@@ -110,20 +130,17 @@ class CleanupCommandRunner(CommandRunner):
             help='Actually delete files'
         )
 
-    def run(self, args: Namespace) -> None:
-        self._cleanup(Project.models_folder, tuple(args.masks), dry_run=not args.delete)
+    def run(self) -> None:
+        self._cleanup(Project.models_folder)
 
-    @classmethod
-    def _cleanup(cls, folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None:
+    def _cleanup(self, folder: Path) -> None:
         """
         Searching for all files by `masks` in `folder`
-        :param dry_run: Selected files will Delete if False
-        :param masks:
         :param folder Target folder
         :raises FileNotFoundError if the Models folder does not exist.
         """
-        if len(masks) == 0:
-            print(f"{masks=}. Exit")
+        if len(self.masks) == 0:
+            print(f"{self.masks=}. Exit")
             return
 
         print(f"Working in {folder=}")
@@ -131,19 +148,19 @@ class CleanupCommandRunner(CommandRunner):
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"Models folder not found: {folder}")
 
-        files = tuple(Project.get_files_by_mask(folder, masks))
+        files = tuple(Project.get_files_by_mask(folder, self.masks))
         files_founded = len(files)
 
         if files_founded == 0:
-            print(f"No files found for {masks=} (Everything in {folder=!r} is clean)")
+            print(f"No files found for {self.masks=} (Everything in {folder=!r} is clean)")
             return
 
-        print(f"{files_founded=} for {masks=}")
+        print(f"{files_founded=} for {self.masks=}")
         for i, file in enumerate(files):
             print(f"{i + 1:>3} -> {file}")
         print()
 
-        if dry_run:
+        if self.dry:
             print("Dry run: no files will be deleted. Re-run with --delete to remove them.")
             return
 
@@ -167,10 +184,10 @@ def _start():
     ))
 
     args = cli.parse_args(None)
-    command_runner = cli.get(args.mode)()
+    command_runner = cli.get(args.mode).create(args)
 
     try:
-        command_runner.run(args)
+        command_runner.run()
 
     except Exception as e:
         sys.stderr.write(str(e))
