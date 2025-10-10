@@ -164,7 +164,7 @@ class CleanupCommandRunner(CommandRunner):
             self.log_error(f"Models folder not found: {folder}")
             return 0
 
-        files = tuple(Project.search_by_mask_recursive(folder, self.masks))
+        files = tuple(Project.search_by_masks_recursive(folder, self.masks))
         files_founded = len(files)
 
         if files_founded == 0:
