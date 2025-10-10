@@ -27,20 +27,20 @@
 <div align="center">
 <blockquote>
 
-### [Вариант 2025.10.10](./Images/Klyax-2025.10.10)
+### [Вариант 2025.10.10](Images/Klyax/2025.10.10)
 
 <table>
 
 <tr>
-<img src="./Images/Klyax-2025.10.10/0.jpg" height="180">
+<img src="./Images/Klyax/2025.10.10/0.jpg" height="180">
 </tr>
 
 <tr>
-<img src="./Images/Klyax-2025.10.10/1.jpg" height="180">
+<img src="./Images/Klyax/2025.10.10/1.jpg" height="180">
 </tr>
 
 <tr>
-<img src="./Images/Klyax-2025.10.10/2.jpg" height="180">
+<img src="./Images/Klyax/2025.10.10/2.jpg" height="180">
 </tr>
 
 </table>
