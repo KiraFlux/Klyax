@@ -10,8 +10,8 @@ from argparse import Namespace
 from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Callable
-from typing import ClassVar
 from typing import Final
+from typing import Iterable
 from typing import Iterator
 from typing import Optional
 from typing import Sequence
@@ -36,36 +36,8 @@ class Project:
             yield from folder.rglob(mask)
 
 
-class CommandMode(ABC):
+class CommandRunner(ABC):
     """Command Mode Runner"""
-
-    __command_modes: ClassVar[MutableMapping[str, Callable[[], CommandMode]]] = dict()
-
-    __parser: ClassVar = ArgumentParser(description="Klyax project organizer tool")
-
-    __sub_parsers: ClassVar = __parser.add_subparsers(
-        dest='mode',
-        required=True,
-    )
-
-    @classmethod
-    def get(cls, mode: str) -> Callable[[], CommandMode]:
-        """Get command mode implementation"""
-        return cls.__command_modes[mode]
-
-    @classmethod
-    def parse_args(cls, args: Optional[Sequence[str]]) -> Namespace:
-        """Get arguments"""
-        return cls.__parser.parse_args(args)
-
-    @classmethod
-    def register(cls, command_mode: type[CommandMode]) -> None:
-        """Register command mode"""
-        cls.__command_modes[command_mode.name()] = command_mode
-
-        command_mode.configure_parser(cls.__sub_parsers.add_parser(
-            command_mode.name(),
-        ))
 
     @classmethod
     @abstractmethod
@@ -82,7 +54,42 @@ class CommandMode(ABC):
         """Execute command"""
 
 
-class CleanupCommandMode(CommandMode):
+class CommandLineInterface:
+    """CLI"""
+
+    def __init__(self, runner_implementations: Iterable[type[CommandRunner]] = tuple()) -> None:
+        self.__parser: Final = ArgumentParser(
+            description="Klyax project organizer tool"
+        )
+
+        self.__sub_parsers: Final = self.__parser.add_subparsers(
+            dest='mode',
+            required=True,
+        )
+
+        self.__command_runner_implementations: Final[MutableMapping[str, Callable[[], CommandRunner]]] = dict()
+
+        for runner_impl in runner_implementations:
+            self.register(runner_impl)
+
+    def parse_args(self, args: Optional[Sequence[str]]) -> Namespace:
+        """Get arguments"""
+        return self.__parser.parse_args(args)
+
+    def get(self, mode: str) -> Callable[[], CommandRunner]:
+        """Get command mode implementation"""
+        return self.__command_runner_implementations[mode]
+
+    def register(self, runner_impl: type[CommandRunner]) -> None:
+        """Register command mode"""
+        self.__command_runner_implementations[runner_impl.name()] = runner_impl
+
+        runner_impl.configure_parser(self.__sub_parsers.add_parser(
+            runner_impl.name(),
+        ))
+
+
+class CleanupCommandRunner(CommandRunner):
 
     @classmethod
     def name(cls) -> str:
@@ -106,7 +113,8 @@ class CleanupCommandMode(CommandMode):
     def run(self, args: Namespace) -> None:
         self._cleanup(Project.models_folder, tuple(args.masks), dry_run=not args.delete)
 
-    def _cleanup(self, folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None:
+    @classmethod
+    def _cleanup(cls, folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None:
         """
         Searching for all files by `masks` in `folder`
         :param dry_run: Selected files will Delete if False
@@ -154,13 +162,15 @@ class CleanupCommandMode(CommandMode):
 
 
 def _start():
-    CommandMode.register(CleanupCommandMode)
+    cli = CommandLineInterface((
+        CleanupCommandRunner,
+    ))
 
-    args = CommandMode.parse_args(None)
-    command_mode_factory = CommandMode.get(args.mode)
+    args = cli.parse_args(None)
+    command_runner = cli.get(args.mode)()
 
     try:
-        command_mode_factory().run(args)
+        command_runner.run(args)
 
     except Exception as e:
         sys.stderr.write(str(e))
