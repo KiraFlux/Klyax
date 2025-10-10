@@ -29,6 +29,12 @@ class Project:
     def __init__(self):
         raise TypeError(f"Cannot create instance of {self.__class__.__name__}")
 
+    @staticmethod
+    def get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
+        """Yield files in folder (recursively) matching any of the provided glob masks."""
+        for mask in masks:
+            yield from folder.rglob(mask)
+
 
 class CommandMode(ABC):
     """Command Mode Runner"""
@@ -117,7 +123,7 @@ class CleanupCommandMode(CommandMode):
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"Models folder not found: {folder}")
 
-        files = tuple(self._get_files_by_mask(folder, masks))
+        files = tuple(Project.get_files_by_mask(folder, masks))
         files_founded = len(files)
 
         if files_founded == 0:
@@ -145,12 +151,6 @@ class CleanupCommandMode(CommandMode):
                 sys.stderr.write(f'Failed to remove {file} : {e}\n')
 
         print(f"{files_removed=} / {files_founded}")
-
-    @staticmethod
-    def _get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
-        """Yield files in folder (recursively) matching any of the provided glob masks."""
-        for mask in masks:
-            yield from folder.rglob(mask)
 
 
 def _start():
