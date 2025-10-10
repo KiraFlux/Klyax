@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./Images/Klyax-Logo.png" height="180">
+<img src="./Images/Klyax-Logo.png" height="120">
 
 </div>
 
@@ -18,9 +18,9 @@
 
 | Каталог              | Описание                                                                                                                                                        |
 |----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [Models](./Models)   | Содержит модели нативные для Компас‑3D, также имеет варианты 3mf (Orca Slicer, stp)                                                                             |
-| [Scripts](./Scripts) | Содержит shell скрипты вызывающие [klyax.py](./Scripts/klyax.py) - модуль для python для автоматизации проекта: генерация README, обработка рендеров, и другое. |
 | [Images](./Images)   | Общие изображения для репозитория                                                                                                                               |
+| [Models](./Models)   | Содержит модели нативные для Компас‑3D, также имеет варианты 3mf (Orca Slicer), stp                                                                             |
+| [Scripts](./Scripts) | Содержит shell скрипты вызывающие [klyax.py](./Scripts/klyax.py) - модуль для python для автоматизации проекта: генерация README, обработка рендеров, и другое. |
 
 ## Фото итераций
 
@@ -32,15 +32,15 @@
 <table>
 
 <tr>
-<img src="./Images/Klyax-2025.10.10/0.jpg" height="270">
+<img src="./Images/Klyax-2025.10.10/0.jpg" height="180">
 </tr>
 
 <tr>
-<img src="./Images/Klyax-2025.10.10/1.jpg" height="270">
+<img src="./Images/Klyax-2025.10.10/1.jpg" height="180">
 </tr>
 
 <tr>
-<img src="./Images/Klyax-2025.10.10/2.jpg" height="270">
+<img src="./Images/Klyax-2025.10.10/2.jpg" height="180">
 </tr>
 
 </table>
