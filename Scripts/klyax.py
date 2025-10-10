@@ -10,13 +10,16 @@ from argparse import Namespace
 from collections.abc import MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 from typing import Final
 from typing import Iterable
 from typing import Iterator
 from typing import Optional
 from typing import Sequence
+from typing import final
 
 
+@final
 class Project:
     """Project tools"""
 
@@ -58,7 +61,22 @@ class CommandRunner(ABC):
     def run(self) -> None:
         """Execute command"""
 
+    @final
+    def log_info(self, message: str) -> None:
+        """Write an Info-level log to stdout"""
+        sys.stdout.write(self._format_log("info", message))
 
+    @final
+    def log_error(self, message: str) -> None:
+        """Write an Error-level log to stderr"""
+        sys.stderr.write(self._format_log("error", message))
+
+    @final
+    def _format_log(self, prefix: str, message: str) -> str:
+        return f"[{self.name()}:{prefix}] {message}\n"
+
+
+@final
 class CommandLineInterface:
     """CLI"""
 
@@ -94,9 +112,13 @@ class CommandLineInterface:
         ))
 
 
+@final
 @dataclass(kw_only=True, frozen=True)
 class CleanupCommandRunner(CommandRunner):
     """Uses to clean up models folder"""
+
+    __delete_flag: ClassVar = "--delete"
+    __short_delete_flag: ClassVar = "-d"
 
     masks: Sequence[str]
     """File Masks"""
@@ -124,8 +146,7 @@ class CleanupCommandRunner(CommandRunner):
         )
 
         p.add_argument(
-            '-d',
-            '--delete',
+            cls.__short_delete_flag, cls.__delete_flag,
             action='store_true',
             help='Actually delete files'
         )
@@ -140,10 +161,10 @@ class CleanupCommandRunner(CommandRunner):
         :raises FileNotFoundError if the Models folder does not exist.
         """
         if len(self.masks) == 0:
-            print(f"{self.masks=}. Exit")
+            self.log_info(f"{self.masks=}. Exit")
             return
 
-        print(f"Working in {folder=}")
+        self.log_info(f"Working in {folder=}")
 
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"Models folder not found: {folder}")
@@ -152,30 +173,30 @@ class CleanupCommandRunner(CommandRunner):
         files_founded = len(files)
 
         if files_founded == 0:
-            print(f"No files found for {self.masks=} (Everything in {folder=!r} is clean)")
+            self.log_info(f"No files found for {self.masks=} (Everything in {folder=} is clean)")
             return
 
-        print(f"{files_founded=} for {self.masks=}")
+        self.log_info(f"{files_founded=} for {self.masks=}")
         for i, file in enumerate(files):
-            print(f"{i + 1:>3} -> {file}")
-        print()
+            self.log_info(f"{i + 1:>3} -> {file}")
 
         if self.dry:
-            print("Dry run: no files will be deleted. Re-run with --delete to remove them.")
+            self.log_info(f"Dry run: no files will be deleted. Re-run with {self.__short_delete_flag} ({self.__delete_flag}) to remove them.")
             return
 
-        files_removed = 0
+        files_removed = sum(map(self._remove_file, files))
 
-        for file in files:
-            try:
-                file.unlink()
-                files_removed += 1
-                print(f'Removed: {file}')
+        self.log_info(f"{files_removed=} / {files_founded}")
 
-            except Exception as e:
-                sys.stderr.write(f'Failed to remove {file} : {e}\n')
+    def _remove_file(self, file: Path) -> bool:
+        try:
+            file.unlink()
+            self.log_info(f'Removed: {file}')
+            return True
 
-        print(f"{files_removed=} / {files_founded}")
+        except Exception as e:
+            self.log_error(f'Failed to remove {file} : {e}\n')
+            return False
 
 
 def _start():
