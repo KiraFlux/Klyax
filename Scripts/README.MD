@@ -10,7 +10,7 @@
 
 ### Режим cleanup
 
-- Назначение: рекурсивно ищет файлы в каталоге [Models](./../Models) по glob‑маскам и
+- Назначение: рекурсивно ищет файлы в каталогах проекта по glob‑маскам и
   опционально удаляет их.
 
 - Аргументы:
@@ -25,6 +25,3 @@
     - `python klyax.py cleanup -d "*.bak" "*.log"`
 - Shell wrapper [`cleanup.sh`](cleanup.sh):
     - `sh cleanup.sh -d "*.bak" "*.log"`
-
-Если каталога [Models](./../Models) не существует,
-то скрипт выбрасывает `FileNotFoundError` и завершает работу с кодом 1

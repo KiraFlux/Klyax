@@ -29,6 +29,9 @@ class Project:
     models_folder: Final = root_folder / "Models"
     """Models Folder"""
 
+    images_folder: Final = root_folder / "Images"
+    """Images folder"""
+
     def __init__(self):
         raise TypeError(f"Cannot create instance of {self.__class__.__name__}")
 
@@ -115,10 +118,15 @@ class CommandLineInterface:
 @final
 @dataclass(kw_only=True, frozen=True)
 class CleanupCommandRunner(CommandRunner):
-    """Uses to clean up models folder"""
+    """Uses to clean up project folders"""
 
     __delete_flag: ClassVar = "--delete"
     __short_delete_flag: ClassVar = "-d"
+
+    __target_folders: ClassVar = (
+        Project.images_folder,
+        Project.models_folder,
+    )
 
     masks: Sequence[str]
     """File Masks"""
@@ -152,17 +160,19 @@ class CleanupCommandRunner(CommandRunner):
         )
 
     def run(self) -> None:
-        self._cleanup(Project.models_folder)
+        if len(self.masks) == 0:
+            self.log_info(f"{self.masks=}. Exit")
+            return
 
-    def _cleanup(self, folder: Path) -> None:
+        files_removed = sum(map(self._cleanup, self.__target_folders))
+        self.log_info(f"{files_removed=}")
+
+    def _cleanup(self, folder: Path) -> int:
         """
         Searching for all files by `masks` in `folder`
         :param folder Target folder
         :raises FileNotFoundError if the Models folder does not exist.
         """
-        if len(self.masks) == 0:
-            self.log_info(f"{self.masks=}. Exit")
-            return
 
         self.log_info(f"Working in {folder=}")
 
@@ -174,7 +184,7 @@ class CleanupCommandRunner(CommandRunner):
 
         if files_founded == 0:
             self.log_info(f"No files found for {self.masks=} (Everything in {folder=} is clean)")
-            return
+            return 0
 
         self.log_info(f"{files_founded=} for {self.masks=}")
         for i, file in enumerate(files):
@@ -182,11 +192,9 @@ class CleanupCommandRunner(CommandRunner):
 
         if self.dry:
             self.log_info(f"Dry run: no files will be deleted. Re-run with {self.__short_delete_flag} ({self.__delete_flag}) to remove them.")
-            return
+            return 0
 
-        files_removed = sum(map(self._remove_file, files))
-
-        self.log_info(f"{files_removed=} / {files_founded}")
+        return sum(map(self._remove_file, files))
 
     def _remove_file(self, file: Path) -> bool:
         try:
