@@ -36,10 +36,16 @@ class Project:
         raise TypeError(f"Cannot create instance of {self.__class__.__name__}")
 
     @staticmethod
-    def get_files_by_mask(folder: Path, masks: Sequence[str]) -> Iterator[Path]:
+    def search_by_mask_recursive(root_folder: Path, masks: Sequence[str]) -> Iterator[Path]:
         """Yield files in folder (recursively) matching any of the provided glob masks."""
         for mask in masks:
-            yield from folder.rglob(mask)
+            yield from root_folder.rglob(mask)
+
+    @staticmethod
+    def search_by_mask(target_folder: Path, masks: Sequence[str]) -> Iterator[Path]:
+        """Yield files in target folder matching any of the provided glob masks"""
+        for mask in masks:
+            yield from target_folder.glob(mask)
 
 
 class CommandRunner(ABC):
@@ -47,13 +53,13 @@ class CommandRunner(ABC):
 
     @classmethod
     @abstractmethod
-    def create(cls, args: Namespace) -> CommandRunner:
-        """Create instance of command runner and pass cli args"""
+    def name(cls) -> str:
+        """Get Command Mode name"""
 
     @classmethod
     @abstractmethod
-    def name(cls) -> str:
-        """Get Command Mode name"""
+    def create(cls, args: Namespace) -> CommandRunner:
+        """Create instance of command runner and pass cli args"""
 
     @classmethod
     @abstractmethod
@@ -135,15 +141,15 @@ class CleanupCommandRunner(CommandRunner):
     """Selected files will Delete if False"""
 
     @classmethod
+    def name(cls) -> str:
+        return "cleanup"
+
+    @classmethod
     def create(cls, args: Namespace) -> CommandRunner:
-        return CleanupCommandRunner(
+        return cls(
             masks=args.masks,
             dry=not args.delete,
         )
-
-    @classmethod
-    def name(cls) -> str:
-        return "cleanup"
 
     @classmethod
     def configure_parser(cls, p: ArgumentParser) -> None:
@@ -177,9 +183,10 @@ class CleanupCommandRunner(CommandRunner):
         self.log_info(f"Working in {folder=}")
 
         if not folder.exists() or not folder.is_dir():
-            raise FileNotFoundError(f"Models folder not found: {folder}")
+            self.log_error(f"Models folder not found: {folder}")
+            return 0
 
-        files = tuple(Project.get_files_by_mask(folder, self.masks))
+        files = tuple(Project.search_by_mask_recursive(folder, self.masks))
         files_founded = len(files)
 
         if files_founded == 0:
@@ -207,9 +214,70 @@ class CleanupCommandRunner(CommandRunner):
             return False
 
 
+@final
+@dataclass(kw_only=True, frozen=True)
+class DisplayEntityCommandRunner(CommandRunner):
+    """Displays Project Entity (Unit or Part) Info"""
+
+    entity_type: str
+    entity_id: str
+
+    @classmethod
+    def name(cls) -> str:
+        return "display"
+
+    @classmethod
+    def configure_parser(cls, p: ArgumentParser) -> None:
+        p.add_argument(
+            "entity",
+            nargs=1,
+            choices=(
+                "unit",
+                "part"
+            ),
+        )
+        p.add_argument(
+            "identifier",
+            nargs=1,
+            help="Unix-like path from models folder to target file name (without ext)"
+        )
+
+    @classmethod
+    def create(cls, args: Namespace) -> CommandRunner:
+        return cls(
+            entity_type=args.entity,
+            entity_id=args.identifier,
+        )
+
+    def run(self) -> None:
+        self.log_info(f"running {self}")
+
+
+@final
+class UpdateReadmeCommandRunner(CommandRunner):
+    """Updates project readme files"""
+
+    @classmethod
+    def name(cls) -> str:
+        return "update-readme"
+
+    @classmethod
+    def create(cls, args: Namespace) -> CommandRunner:
+        return cls()
+
+    @classmethod
+    def configure_parser(cls, p: ArgumentParser) -> None:
+        pass
+
+    def run(self) -> None:
+        pass
+
+
 def _start():
     cli = CommandLineInterface((
         CleanupCommandRunner,
+        UpdateReadmeCommandRunner,
+        DisplayEntityCommandRunner,
     ))
 
     args = cli.parse_args(None)
