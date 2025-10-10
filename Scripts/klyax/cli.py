@@ -1,4 +1,10 @@
-"""Klyax Project Python script"""
+"""
+Klyax CLI
+
+- Command Runner ABC
+- Command Line Interface Wrapper
+- Command Runner Implementations
+"""
 
 from __future__ import annotations
 
@@ -7,45 +13,17 @@ from abc import ABC
 from abc import abstractmethod
 from argparse import ArgumentParser
 from argparse import Namespace
-from collections.abc import MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 from typing import Final
 from typing import Iterable
-from typing import Iterator
+from typing import MutableMapping
 from typing import Optional
 from typing import Sequence
 from typing import final
 
-
-@final
-class Project:
-    """Project tools"""
-
-    root_folder: Final = Path(__file__).resolve().parent.parent  # This File -> Scripts Folder -> Root
-    """Project Folder"""
-
-    models_folder: Final = root_folder / "Models"
-    """Models Folder"""
-
-    images_folder: Final = root_folder / "Images"
-    """Images folder"""
-
-    def __init__(self):
-        raise TypeError(f"Cannot create instance of {self.__class__.__name__}")
-
-    @staticmethod
-    def search_by_mask_recursive(root_folder: Path, masks: Sequence[str]) -> Iterator[Path]:
-        """Yield files in folder (recursively) matching any of the provided glob masks."""
-        for mask in masks:
-            yield from root_folder.rglob(mask)
-
-    @staticmethod
-    def search_by_mask(target_folder: Path, masks: Sequence[str]) -> Iterator[Path]:
-        """Yield files in target folder matching any of the provided glob masks"""
-        for mask in masks:
-            yield from target_folder.glob(mask)
+from klyax.project import Project
 
 
 class CommandRunner(ABC):
@@ -271,25 +249,3 @@ class UpdateReadmeCommandRunner(CommandRunner):
 
     def run(self) -> None:
         pass
-
-
-def _start():
-    cli = CommandLineInterface((
-        CleanupCommandRunner,
-        UpdateReadmeCommandRunner,
-        DisplayEntityCommandRunner,
-    ))
-
-    args = cli.parse_args(None)
-    command_runner = cli.get(args.mode).create(args)
-
-    try:
-        command_runner.run()
-
-    except Exception as e:
-        sys.stderr.write(str(e))
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    _start()

@@ -4,7 +4,7 @@
 
 </div>
 
-## [Klyax](klyax.py) - универсальный python‑скрипт для автоматизации проекта.
+## [Klyax](klyax) - универсальный исполняемый python модуль для автоматизации проекта.
 
 - Режимы задаются первым позиционным аргументом доступны следующие:
 
@@ -20,8 +20,8 @@
 Примеры:
 
 - Dry run:
-    - `python klyax.py cleanup "*.bak" "*.log"`
+    - `python -m klyax cleanup "*.bak" "*.log"`
 - Удалить:
-    - `python klyax.py cleanup -d "*.bak" "*.log"`
+    - `python -m klyax cleanup -d "*.bak" "*.log"`
 - Shell wrapper [`cleanup.sh`](cleanup.sh):
     - `sh cleanup.sh -d "*.bak" "*.log"`

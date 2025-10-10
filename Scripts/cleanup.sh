@@ -1,2 +1,2 @@
 #!/bin/sh
-python ./klyax.py cleanup "*.bak *.log" "$@"
+python -m klyax cleanup "*.bak *.log" "$@"
