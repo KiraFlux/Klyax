@@ -16,11 +16,18 @@ from typing import Iterator
 from typing import Optional
 from typing import Sequence
 
-_root_folder: Final = Path(__file__).resolve().parent.parent  # This File -> Scripts Folder -> Root
-"""Project Folder"""
 
-_models_folder: Final = _root_folder / "Models"
-"""Models Folder"""
+class Project:
+    """Project tools"""
+
+    root_folder: Final = Path(__file__).resolve().parent.parent  # This File -> Scripts Folder -> Root
+    """Project Folder"""
+
+    models_folder: Final = root_folder / "Models"
+    """Models Folder"""
+
+    def __init__(self):
+        raise TypeError(f"Cannot create instance of {self.__class__.__name__}")
 
 
 class CommandMode(ABC):
@@ -91,7 +98,7 @@ class CleanupCommandMode(CommandMode):
         )
 
     def run(self, args: Namespace) -> None:
-        self._cleanup(_models_folder, tuple(args.masks), dry_run=not args.delete)
+        self._cleanup(Project.models_folder, tuple(args.masks), dry_run=not args.delete)
 
     def _cleanup(self, folder: Path, masks: Sequence[str], *, dry_run: bool = True) -> None:
         """
