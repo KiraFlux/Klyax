@@ -23,8 +23,7 @@ def _start():
 
     except Exception as e:
         sys.stderr.write(str(e))
-        raise
-        # sys.exit(1)
+        sys.exit(1)
 
 
 _start()
