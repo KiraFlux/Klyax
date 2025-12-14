@@ -4,9 +4,8 @@ sys.path.insert(0, __file__ + "../../Scaffold/Scripts")
 
 from pathlib import Path
 
-from scaffold import AssemblyUnitModel
 from scaffold import Config
-from scaffold import Project
+from scaffold import Project, ModelInfoJob
 
 
 def _start():
@@ -14,9 +13,10 @@ def _start():
     klyax_config = Config.default(klyax_root)
     klyax_project = Project(klyax_config)
 
-    klyax_quadcopter: AssemblyUnitModel = klyax_project.get_assembly_unit_model("Klyax-Quadcopter")
+    klyax_quadcopter = klyax_project.get_assembly_unit_model("Klyax-Quadcopter")
 
-    print(klyax_quadcopter.renders)
+    job = ModelInfoJob()
+    job.display(klyax_quadcopter)
 
     return
 
