@@ -10,7 +10,7 @@
 <div align="center">
 <blockquote>
 
-## [Klyax](./Klyax) - Основная сборка дрона
+## [Klyax](./Klyax-Quadcopter) - Основная сборка дрона
 
 <img src="./Klyax/.jpg" height="180">
 
